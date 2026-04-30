@@ -33,7 +33,5 @@ void EditorUI::build(const rr::render::Renderer& renderer, float delta_time_seco
         pass->render_ui();
     }
 
-    // ── Demo Window (Phase 3 mouse-input validation) ─────────────────────
-    ImGui::ShowDemoWindow();
 }
 }

@@ -53,6 +53,9 @@ public:
     [[nodiscard]] const char* name() const override { return "ImGui"; }
     [[nodiscard]] Reflection  reflect() const override;
     void on_resize(VkExtent2D new_extent) override;
+    // Update ImGui's minimum image count to match the current swapchain.
+    // Call this from Application::recreate_swapchain() after swapchain recreation.
+    void set_min_image_count(uint32_t count);
     void execute(rr::render::FrameContext& frame_context) override;
 
 private:

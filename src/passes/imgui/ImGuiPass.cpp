@@ -125,7 +125,11 @@ rr::render::RenderPass::Reflection ImGuiPass::reflect() const
 void ImGuiPass::on_resize(VkExtent2D new_extent)
 {
     extent_ = new_extent;
-    ImGui_ImplVulkan_SetMinImageCount(2);
+}
+
+void ImGuiPass::set_min_image_count(uint32_t count)
+{
+    ImGui_ImplVulkan_SetMinImageCount(count);
 }
 
 void ImGuiPass::execute(rr::render::FrameContext& ctx)

@@ -284,6 +284,10 @@ void Application::recreate_swapchain()
     vkDeviceWaitIdle(device_.device());
     swapchain_.recreate(static_cast<uint32_t>(fb_w), static_cast<uint32_t>(fb_h));
     renderer_.on_resize(swapchain_.extent());
+    if (imgui_pass_ != nullptr)
+    {
+        imgui_pass_->set_min_image_count(swapchain_.image_count());
+    }
 }
 
 void Application::glfw_resize_callback(GLFWwindow* window, int /*width*/, int /*height*/)
