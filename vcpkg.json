@@ -1,0 +1,21 @@
+{
+  "name": "research-renderer",
+  "version-string": "0.0.1",
+  "dependencies": [
+    "vulkan-memory-allocator",
+    "volk",
+    "glfw3",
+    {
+      "name": "imgui",
+      "features": [
+        "docking-experimental"
+      ]
+    },
+    "glm",
+    "spdlog",
+    "fmt",
+    "tinygltf",
+    "stb",
+    "efsw"
+  ]
+}
