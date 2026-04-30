@@ -36,6 +36,7 @@ public:
     [[nodiscard]] virtual const char* name() const = 0;
     [[nodiscard]] virtual Reflection reflect() const = 0;
     virtual void render_ui() {}
+    virtual void on_resize(VkExtent2D /*new_extent*/) {}
     virtual void execute(FrameContext& frame_context) = 0;
 };
 }

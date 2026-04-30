@@ -9,6 +9,12 @@
 #include <string_view>
 #include <vector>
 
+// VMA declarations (implementation lives in vma_impl.cpp)
+#define VMA_STATIC_VULKAN_FUNCTIONS  0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+#include <volk.h>
+#include <vma/vk_mem_alloc.h>
+
 namespace rr::rhi
 {
 namespace
@@ -204,6 +210,29 @@ void Device::create_device_with_surface(VkSurfaceKHR surface)
     volkLoadDevice(device_);
 
     vkGetDeviceQueue(device_, queue_families_.graphics_compute, 0, &graphics_queue_);
+
+    // Create the VMA allocator now that we have the device and volk function
+    // pointers loaded.  We hand volk's proc-addr functions to VMA so it can
+    // resolve everything dynamically.
+    VmaVulkanFunctions vma_funcs{};
+    vma_funcs.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    vma_funcs.vkGetDeviceProcAddr   = vkGetDeviceProcAddr;
+
+    VmaAllocatorCreateInfo vma_info{};
+    vma_info.vulkanApiVersion = VK_API_VERSION_1_4;
+    vma_info.physicalDevice   = physical_device_;
+    vma_info.device           = device_;
+    vma_info.instance         = instance_;
+    vma_info.pVulkanFunctions = &vma_funcs;
+    // BUFFER_DEVICE_ADDRESS_BIT is required so VMA can obtain device addresses
+    // for buffers allocated with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT.
+    vma_info.flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+    if (vmaCreateAllocator(&vma_info, &allocator_) != VK_SUCCESS)
+    {
+        throw std::runtime_error("vmaCreateAllocator failed.");
+    }
+    rr::core::log()->info("VMA allocator created.");
 
     log_enabled_features();
 }
@@ -420,6 +449,12 @@ void Device::log_enabled_features() const
 
 void Device::shutdown()
 {
+    if (allocator_ != nullptr)
+    {
+        vmaDestroyAllocator(allocator_);
+        allocator_ = nullptr;
+    }
+
     if (device_ != VK_NULL_HANDLE)
     {
         vkDestroyDevice(device_, nullptr);

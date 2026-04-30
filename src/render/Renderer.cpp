@@ -1,21 +1,5 @@
 #include "render/Renderer.h"
 
-#include "render/RenderPass.h"
+// All Renderer methods are defined inline in Renderer.h.
+// This translation unit exists only to satisfy the CMake target.
 
-#include <utility>
-
-namespace rr::render
-{
-void Renderer::add_pass(std::unique_ptr<RenderPass> pass)
-{
-    passes_.push_back(std::move(pass));
-}
-
-void Renderer::render(FrameContext& frame_context)
-{
-    for (const auto& pass : passes_)
-    {
-        pass->execute(frame_context);
-    }
-}
-}

@@ -6,6 +6,9 @@
 
 #include <volk.h>
 
+// Forward-declare VmaAllocator so users of Device.h don't pull in all of VMA.
+VK_DEFINE_HANDLE(VmaAllocator)
+
 namespace rr::rhi
 {
 class Device
@@ -42,6 +45,7 @@ public:
     [[nodiscard]] VkDevice device() const noexcept { return device_; }
     [[nodiscard]] VkQueue graphics_queue() const noexcept { return graphics_queue_; }
     [[nodiscard]] uint32_t graphics_queue_family() const noexcept { return queue_families_.graphics_compute; }
+    [[nodiscard]] VmaAllocator allocator() const noexcept { return allocator_; }
 
 private:
     [[nodiscard]] bool validation_layers_available() const;
@@ -57,6 +61,7 @@ private:
     VkQueue graphics_queue_ = VK_NULL_HANDLE;
     QueueFamilies queue_families_{};
     VkPhysicalDeviceProperties physical_device_properties_{};
+    VmaAllocator allocator_ = nullptr;
 
     bool validation_enabled_ = false;
     std::vector<const char*> enabled_instance_extensions_;
