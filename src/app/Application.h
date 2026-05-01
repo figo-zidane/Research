@@ -105,7 +105,6 @@ private:
     uint32_t accumulated_spp_   = 0;
     bool     camera_moved_      = false;
     bool     save_screenshot_   = false;
-    bool     screenshot_saved_  = false;
 
     // ── Display mode (false = PathTracer accumulated, true = ReSTIR DI) ──
     bool show_restir_ = false;

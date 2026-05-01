@@ -35,15 +35,7 @@ void EditorUI::build(const rr::render::Renderer& renderer,
         const float fps = (delta_time_seconds > 0.0f) ? (1.0f / delta_time_seconds) : 0.0f;
         ImGui::Text("FPS : %.1f", fps);
         ImGui::Text("dt  : %.3f ms", delta_time_seconds * 1000.0f);
-        ImGui::Text("SPP : %u / 4096", accumulated_spp);
-        const float progress = static_cast<float>(accumulated_spp) / 4096.0f;
-        ImGui::ProgressBar(progress > 1.0f ? 1.0f : progress, ImVec2(-1.0f, 6.0f), "");
-        if (accumulated_spp >= 4096)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
-            ImGui::Text("4096 spp reached!");
-            ImGui::PopStyleColor();
-        }
+        ImGui::Text("SPP : %u", accumulated_spp);
     }
     ImGui::End();
 

@@ -13,6 +13,7 @@
 
 #include <algorithm>  // std::clamp
 #include <cmath>      // std::pow
+#include <ctime>      // std::time
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -312,7 +313,6 @@ void Application::render_frame()
     {
         accumulated_spp_ = 0;
         camera_moved_    = true;
-        screenshot_saved_ = false;
     }
 
     // ── Camera update ─────────────────────────────────────────────────────
@@ -375,16 +375,9 @@ void Application::render_frame()
     // Reset camera_moved flag after executing accumulate pass this frame
     camera_moved_ = false;
 
-    // Sync SPP back from accumulate pass and auto-trigger screenshot at 4096 spp
+    // Sync SPP back from accumulate pass
     if (accumulate_pass_)
-    {
         accumulated_spp_ = accumulate_pass_->accumulated_spp;
-        if (accumulated_spp_ >= 4096 && !screenshot_saved_)
-        {
-            save_screenshot_  = true;
-            screenshot_saved_ = true;
-        }
-    }
 
     // Reset tonemap source back to accumulate pass for next frame
     if (!show_restir_ && tonemap_pass_ && accumulate_pass_)
@@ -617,7 +610,8 @@ void Application::capture_screenshot()
     staging.unmap(device_);
     staging.destroy(device_);
 
-    const std::string path = "screenshot_" + std::to_string(accumulated_spp_) + "spp.png";
+    const std::time_t ts   = std::time(nullptr);
+    const std::string path = "screenshot_" + std::to_string(accumulated_spp_) + "spp_" + std::to_string(ts) + ".png";
     stbi_write_png(path.c_str(),
                    static_cast<int>(ext.width),
                    static_cast<int>(ext.height),
