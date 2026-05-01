@@ -48,11 +48,16 @@ HitInfo trace(float3 origin, float3 dir, float t_min, float t_max)
     info.hit = false;
 
     RayQuery<RAY_FLAG_CULL_BACK_FACING_TRIANGLES> rq;
+    RayDesc ray;
+    ray.Origin    = origin;
+    ray.TMin      = t_min;
+    ray.Direction = dir;
+    ray.TMax      = t_max;
     rq.TraceRayInline(
         gTLAS[pc.tlas_idx],
         RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
         0xFF,
-        RayDesc { origin, t_min, dir, t_max }
+        ray
     );
 
     while (rq.Proceed())

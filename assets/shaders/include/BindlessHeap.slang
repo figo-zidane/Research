@@ -17,8 +17,8 @@
 //
 // SceneData の定義は GpuScene.slang で行い、そちらを先に include すること。
 
-[[vk::binding(0, 0)]] layout(descriptor_heap) Texture2D                       gTextures[];
-[[vk::binding(1, 0)]] layout(descriptor_heap) RWTexture2D<float4>              gStorageImages[];
-[[vk::binding(2, 0)]] layout(descriptor_heap) ByteAddressBuffer                gScene[];
-[[vk::binding(3, 0)]] layout(descriptor_heap) RaytracingAccelerationStructure  gTLAS[];
-[[vk::binding(0, 1)]] layout(descriptor_heap) SamplerState                     gSamplers[];
+[[vk::binding(0, 0)]] Texture2D                       gTextures[];
+[[vk::binding(1, 0)]] RWTexture2D<float4>              gStorageImages[];
+[[vk::binding(2, 0)]] ByteAddressBuffer                gScene[];
+[[vk::binding(3, 0)]] RaytracingAccelerationStructure  gTLAS[];
+[[vk::binding(0, 1)]] SamplerState                     gSamplers[];

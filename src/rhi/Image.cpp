@@ -80,10 +80,11 @@ void Image::create(Device& device, const ImageDesc& desc)
     alloc_info.usage = static_cast<VmaMemoryUsage>(desc.memory_usage);
     alloc_info.flags = static_cast<VmaAllocationCreateFlags>(desc.alloc_flags);
 
-    if (vmaCreateImage(device.allocator(), &img_info, &alloc_info,
-                       &image_, &allocation_, nullptr) != VK_SUCCESS)
+    VkResult res = vmaCreateImage(device.allocator(), &img_info, &alloc_info,
+                       &image_, &allocation_, nullptr);
+    if (res != VK_SUCCESS)
     {
-        throw std::runtime_error("vmaCreateImage failed.");
+        throw std::runtime_error(std::string("vmaCreateImage failed: VkResult=") + std::to_string(static_cast<int>(res)));
     }
 
     format_       = desc.format;

@@ -110,34 +110,39 @@ void ShaderModule::compile(SlangSession&                      session,
         throw std::runtime_error("Slang: getLayout() returned null for " + path_str);
     }
 
-    // ── 5. Emit SPIR-V ───────────────────────────────────────────────────
-    diag.setNull();
-    Slang::ComPtr<ISlangBlob> spv_blob;
-    if (SLANG_FAILED(linked_program->getEntryPointCode(
-            0, // entryPointIndex (global composite entry point)
-            0, // targetIndex
-            spv_blob.writeRef(),
-            diag.writeRef())))
+    // ── 5. Emit SPIR-V per entry point ──────────────────────────────────
+    spv_codes_.resize(entry_points.size());
+    for (size_t i = 0; i < entry_points.size(); ++i)
     {
+        diag.setNull();
+        Slang::ComPtr<ISlangBlob> spv_blob;
+        if (SLANG_FAILED(linked_program->getEntryPointCode(
+                static_cast<SlangInt>(i),
+                0, // targetIndex
+                spv_blob.writeRef(),
+                diag.writeRef())))
+        {
+            handle_diagnostics(diag.get(), "emit SPIR-V");
+            throw std::runtime_error("Slang: SPIR-V emission failed for entry point '" +
+                                     entry_points[i].name + "' in " + path_str);
+        }
         handle_diagnostics(diag.get(), "emit SPIR-V");
-        throw std::runtime_error("Slang: SPIR-V emission failed for " + path_str);
-    }
-    handle_diagnostics(diag.get(), "emit SPIR-V");
 
-    const uint8_t* data = static_cast<const uint8_t*>(spv_blob->getBufferPointer());
-    const size_t   size = spv_blob->getBufferSize();
-    spv_code_.assign(data, data + size);
+        const uint8_t* data = static_cast<const uint8_t*>(spv_blob->getBufferPointer());
+        const size_t   size = spv_blob->getBufferSize();
+        spv_codes_[i].assign(data, data + size);
+    }
 
     entry_points_ = entry_points;
     rr::core::log()->info("ShaderModule: compiled '{}' ({} entry points, {} SPIR-V bytes)",
                           path_str,
                           entry_points.size(),
-                          size);
+                          spv_codes_.empty() ? 0 : spv_codes_[0].size());
 }
 
 void ShaderModule::reset()
 {
-    spv_code_.clear();
+    spv_codes_.clear();
     layout_ = nullptr;
     if (program_)
     {
@@ -150,6 +155,16 @@ void ShaderModule::reset()
         module_ = nullptr;
     }
     entry_points_.clear();
+    spv_codes_.clear();
+}
+
+const std::vector<uint8_t>& ShaderModule::spv_code(uint32_t entry_index) const
+{
+    if (entry_index >= spv_codes_.size())
+    {
+        throw std::out_of_range("ShaderModule::spv_code: entry_index out of range");
+    }
+    return spv_codes_[entry_index];
 }
 
 } // namespace rr::shader

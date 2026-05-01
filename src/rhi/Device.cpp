@@ -377,9 +377,13 @@ void Device::create_logical_device()
     v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     v12.pNext = &v13;
 
+    VkPhysicalDeviceVulkan11Features v11{};
+    v11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    v11.pNext = &v12;
+
     VkPhysicalDeviceFeatures2 features2{};
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    features2.pNext = &v12;
+    features2.pNext = &v11;
 
     vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
 
@@ -407,6 +411,7 @@ void Device::create_logical_device()
     require(as_features.accelerationStructure, "accelerationStructure");
     require(rt_pipeline_features.rayTracingPipeline, "rayTracingPipeline");
     require(rq_features.rayQuery, "rayQuery");
+    require(v11.shaderDrawParameters, "Vulkan11.shaderDrawParameters");
     require(heap_features.descriptorHeap, "descriptorHeap");
 
     constexpr float kQueuePriority = 1.0f;

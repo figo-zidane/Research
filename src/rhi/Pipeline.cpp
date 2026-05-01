@@ -171,7 +171,7 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
         throw std::runtime_error("ComputePipeline: entry_index out of range.");
     }
 
-    VkShaderModule vk_mod = create_shader_module(device.device(), desc.module->spv_code());
+    VkShaderModule vk_mod = create_shader_module(device.device(), desc.module->spv_code(desc.entry_index));
 
     // Build heap-mapping chain.  Per spec, VkShaderDescriptorSetAndBindingMappingInfoEXT
     // must be placed in VkPipelineShaderStageCreateInfo::pNext (not the layout).
@@ -185,9 +185,10 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
     flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
     flags2.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
 
-    // Descriptor heap pipelines must use VK_NULL_HANDLE layout (spec requirement).
+    // Slang emits SPIR-V with the entry point name "main" regardless of the
+    // original function name.  Use "main" here to match.
     VkPipelineShaderStageCreateInfo stage_ci =
-        stage_info(VK_SHADER_STAGE_COMPUTE_BIT, vk_mod, eps[desc.entry_index].name.c_str());
+        stage_info(VK_SHADER_STAGE_COMPUTE_BIT, vk_mod, "main");
     if (desc.registry)
     {
         stage_ci.pNext = mapping_chain.pnext();
@@ -251,7 +252,10 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
         throw std::runtime_error("GraphicsPipeline: entry index out of range.");
     }
 
-    VkShaderModule vk_mod = create_shader_module(device.device(), desc.module->spv_code());
+    // Build two VkShaderModules (one per entry point) since each has its own SPIR-V blob.
+    // Slang emits SPIR-V with the entry point name "main" for every function.
+    VkShaderModule vk_vs = create_shader_module(device.device(), desc.module->spv_code(desc.vert_entry));
+    VkShaderModule vk_fs = create_shader_module(device.device(), desc.module->spv_code(desc.frag_entry));
 
     // Build heap-mapping chain.  Per spec, VkShaderDescriptorSetAndBindingMappingInfoEXT
     // must be placed in each VkPipelineShaderStageCreateInfo::pNext (not the layout).
@@ -263,8 +267,8 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
 
     // Descriptor heap pipelines must use VK_NULL_HANDLE layout (spec requirement).
     VkPipelineShaderStageCreateInfo stages[] = {
-        stage_info(VK_SHADER_STAGE_VERTEX_BIT,   vk_mod, eps[desc.vert_entry].name.c_str()),
-        stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, vk_mod, eps[desc.frag_entry].name.c_str()),
+        stage_info(VK_SHADER_STAGE_VERTEX_BIT,   vk_vs, "main"),
+        stage_info(VK_SHADER_STAGE_FRAGMENT_BIT, vk_fs, "main"),
     };
     if (desc.registry)
     {
@@ -356,7 +360,8 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
     const VkResult result = vkCreateGraphicsPipelines(
         device.device(), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
 
-    vkDestroyShaderModule(device.device(), vk_mod, nullptr);
+    vkDestroyShaderModule(device.device(), vk_vs, nullptr);
+    vkDestroyShaderModule(device.device(), vk_fs, nullptr);
 
     if (result != VK_SUCCESS)
     {
@@ -402,13 +407,15 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     }
 
     const auto& eps = desc.reflection->entry_points();
-    VkShaderModule vk_mod = create_shader_module(device.device(), desc.module->spv_code());
-
-    // Build stage array from entry points.
+    // Build stage array — each entry point has its own SPIR-V blob with "main" as the name.
+    std::vector<VkShaderModule> vk_mods;
+    vk_mods.reserve(eps.size());
     std::vector<VkPipelineShaderStageCreateInfo> stages;
-    for (const auto& ep : eps)
+    for (size_t i = 0; i < eps.size(); ++i)
     {
-        stages.push_back(stage_info(to_vk_stage(ep.stage), vk_mod, ep.name.c_str()));
+        VkShaderModule m = create_shader_module(device.device(), desc.module->spv_code(static_cast<uint32_t>(i)));
+        vk_mods.push_back(m);
+        stages.push_back(stage_info(to_vk_stage(eps[i].stage), m, "main"));
     }
 
     // Heap mapping chain; attached to each stage's pNext per VK_EXT_descriptor_heap spec.
@@ -476,7 +483,8 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     const VkResult result = vkCreateRayTracingPipelinesKHR(
         device.device(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
 
-    vkDestroyShaderModule(device.device(), vk_mod, nullptr);
+    for (VkShaderModule m : vk_mods)
+        vkDestroyShaderModule(device.device(), m, nullptr);
 
     if (result != VK_SUCCESS)
     {

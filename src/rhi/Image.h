@@ -19,7 +19,7 @@ struct ImageDesc
     uint32_t               mip_levels   = 1;
     uint32_t               array_layers = 1;
     VkSampleCountFlagBits  samples      = VK_SAMPLE_COUNT_1_BIT;
-    int                    memory_usage = 4; // VMA_MEMORY_USAGE_AUTO
+    int                    memory_usage = 7; // VMA_MEMORY_USAGE_AUTO
     int                    alloc_flags  = 0; // VmaAllocationCreateFlags
     const char*            debug_name   = nullptr;
 };

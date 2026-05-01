@@ -15,7 +15,7 @@ struct BufferDesc
 {
     VkDeviceSize         size         = 0;
     VkBufferUsageFlags   usage        = 0;
-    int                  memory_usage = 4;    // VMA_MEMORY_USAGE_AUTO
+    int                  memory_usage = 7;    // VMA_MEMORY_USAGE_AUTO
     uint32_t             alloc_flags  = 0;    // VmaAllocationCreateFlags
     const char*          debug_name   = nullptr;
 };
