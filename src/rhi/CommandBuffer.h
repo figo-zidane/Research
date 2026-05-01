@@ -29,6 +29,10 @@ public:
     [[nodiscard]] VkCommandBuffer begin_frame(uint32_t frame_index);
     void end_frame(VkCommandBuffer cmd);
 
+    // Returns the command pool for frame slot 0 (suitable for one-time submissions
+    // that don't need to align with a specific in-flight frame slot).
+    [[nodiscard]] VkCommandPool pool() const { return pools_[0]; }
+
     // sync2 helper: transitions a single colour image's layout, picking
     // generic-but-correct stage/access masks for the source and dest layouts.
     static void image_barrier(

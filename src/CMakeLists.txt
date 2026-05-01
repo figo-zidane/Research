@@ -20,6 +20,7 @@ add_library(rhi STATIC
   rhi/Sampler.cpp
   rhi/BindlessRegistry.cpp
   rhi/Pipeline.cpp
+  rhi/AccelStructure.cpp
 )
 
 target_include_directories(rhi PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -48,10 +49,12 @@ target_link_libraries(shader PUBLIC core Slang::Slang)
 
 add_library(scene STATIC
   scene/Scene.cpp
+  scene/Camera.cpp
+  scene/GltfLoader.cpp
 )
 
 target_include_directories(scene PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(scene PUBLIC core glm::glm)
+target_link_libraries(scene PUBLIC core rhi glm::glm)
 
 add_library(render STATIC
   render/Renderer.cpp
@@ -75,6 +78,34 @@ target_include_directories(imgui_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(imgui_pass PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
 target_link_libraries(imgui_pass PUBLIC render rhi imgui::imgui glfw)
 
+# ── GBuffer pass ──────────────────────────────────────────────────────────────
+add_library(gbuffer_pass STATIC
+  passes/gbuffer/GBufferPass.cpp
+)
+target_include_directories(gbuffer_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(gbuffer_pass PUBLIC render rhi imgui::imgui)
+
+# ── PathTracer pass ───────────────────────────────────────────────────────────
+add_library(pathtracer_pass STATIC
+  passes/pathtracer_reference/PathTracerPass.cpp
+)
+target_include_directories(pathtracer_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(pathtracer_pass PUBLIC render rhi imgui::imgui)
+
+# ── Accumulate pass ───────────────────────────────────────────────────────────
+add_library(accumulate_pass STATIC
+  passes/accumulate/AccumulatePass.cpp
+)
+target_include_directories(accumulate_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(accumulate_pass PUBLIC render rhi imgui::imgui)
+
+# ── Tonemap pass ──────────────────────────────────────────────────────────────
+add_library(tonemap_pass STATIC
+  passes/tonemap/TonemapPass.cpp
+)
+target_include_directories(tonemap_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(tonemap_pass PUBLIC render rhi imgui::imgui)
+
 # ── Application / entry point ────────────────────────────────────────────────
 add_library(app STATIC
   app/Application.cpp
@@ -82,7 +113,9 @@ add_library(app STATIC
 )
 
 target_include_directories(app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(app PUBLIC core render rhi imgui_pass glfw imgui::imgui)
+target_link_libraries(app PUBLIC core render rhi scene shader
+  imgui_pass gbuffer_pass pathtracer_pass accumulate_pass tonemap_pass
+  glfw imgui::imgui)
 
 add_executable(research-renderer
   main.cpp

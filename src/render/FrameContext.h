@@ -35,5 +35,7 @@ struct FrameContext
     uint32_t    image_index = 0;
     uint32_t    frame_index = 0;
     float       delta_time_seconds = 0.0f;
+    // Accumulated HDR image handle (for TonemapPass barrier).
+    VkImage     accumulated_image  = VK_NULL_HANDLE;
 };
 }

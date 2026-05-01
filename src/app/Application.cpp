@@ -1,7 +1,11 @@
 #include "app/Application.h"
 
 #include "core/Log.h"
+#include "passes/accumulate/AccumulatePass.h"
+#include "passes/gbuffer/GBufferPass.h"
 #include "passes/imgui/ImGuiPass.h"
+#include "passes/pathtracer_reference/PathTracerPass.h"
+#include "passes/tonemap/TonemapPass.h"
 
 #include <stdexcept>
 #include <utility>
@@ -28,7 +32,6 @@ void Application::initialize()
     initialize_window();
     initialize_vulkan();
     initialize_renderer();
-    scene_.set_name("Bootstrap Scene");
 }
 
 void Application::shutdown()
@@ -38,11 +41,18 @@ void Application::shutdown()
         vkDeviceWaitIdle(device_.device());
     }
 
+    if (gbuffer_pass_)    { gbuffer_pass_->shutdown(device_);    gbuffer_pass_    = nullptr; }
+    if (pathtracer_pass_) { pathtracer_pass_->shutdown(device_); pathtracer_pass_ = nullptr; }
+    if (accumulate_pass_) { accumulate_pass_->shutdown(device_); accumulate_pass_ = nullptr; }
+    if (tonemap_pass_)    { tonemap_pass_->shutdown(device_);    tonemap_pass_    = nullptr; }
+
     if (imgui_pass_ != nullptr)
     {
         imgui_pass_->shutdown();
         imgui_pass_ = nullptr;
     }
+
+    scene_.destroy(device_);
 
     command_buffer_.shutdown();
     frame_.shutdown();
@@ -105,6 +115,9 @@ void Application::initialize_window()
     }
     glfwSetWindowUserPointer(window_, this);
     glfwSetFramebufferSizeCallback(window_, &Application::glfw_resize_callback);
+    glfwSetMouseButtonCallback(window_, &Application::glfw_mouse_button_callback);
+    glfwSetCursorPosCallback(window_, &Application::glfw_cursor_pos_callback);
+    glfwSetScrollCallback(window_, &Application::glfw_scroll_callback);
 
     rr::core::log()->info("Created window {} ({}x{})", title_, width_, height_);
 }
@@ -145,10 +158,32 @@ void Application::initialize_vulkan()
 
 void Application::initialize_renderer()
 {
-    // Initialise the bindless registry (logs heap sizes / base offsets).
     bindless_registry_.initialize(device_);
+    slang_session_.initialize("assets/shaders/include");
 
-    // Create the ImGui pass and register it with the Renderer.
+    // Build Cornell Box and upload to GPU.
+    // one_time_submit provides a fresh VkCommandBuffer that gets submitted and
+    // waited on before returning.
+    scene_.build_cornell_box();
+    scene_.upload(device_, bindless_registry_,
+        [this](std::function<void(VkCommandBuffer)> fn) { one_time_submit(fn); });
+
+    camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
+
+    VkExtent2D extent{static_cast<uint32_t>(width_), static_cast<uint32_t>(height_)};
+
+    pathtracer_pass_ = renderer_.add_pass<rr::passes::pathtracer::PathTracerPass>();
+    pathtracer_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+
+    accumulate_pass_ = renderer_.add_pass<rr::passes::accumulate::AccumulatePass>();
+    accumulate_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+    accumulate_pass_->radiance_storage_idx = pathtracer_pass_->radiance_storage_idx;
+
+    tonemap_pass_ = renderer_.add_pass<rr::passes::tonemap::TonemapPass>();
+    tonemap_pass_->initialize(device_, slang_session_, bindless_registry_, swapchain_.image_format());
+    tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
+    tonemap_pass_->linear_sampler_idx      = scene_.gpu_handles().linear_sampler_idx;
+
     imgui_pass_ = renderer_.add_pass<rr::passes::imgui::ImGuiPass>();
     imgui_pass_->initialize(device_, window_, swapchain_);
 }
@@ -195,16 +230,42 @@ void Application::render_frame()
     imgui_pass_->new_frame();
     editor_ui_.build(renderer_, delta_time_seconds_);
 
+    // ── Camera update ─────────────────────────────────────────────────────
+    bool cam_moved = camera_.update(window_, delta_time_seconds_);
+    if (cam_moved)
+    {
+        camera_moved_    = true;
+        accumulated_spp_ = 0;
+    }
+    // Update GPU camera data
+    int fb_w2 = 0, fb_h2 = 0;
+    glfwGetFramebufferSize(window_, &fb_w2, &fb_h2);
+    scene_.update_camera(camera_,
+                          static_cast<uint32_t>(fb_w2),
+                          static_cast<uint32_t>(fb_h2),
+                          frame_index);
+
+    // ── Wire accumulate pass state ────────────────────────────────────────
+    if (accumulate_pass_)
+    {
+        accumulate_pass_->camera_moved    = camera_moved_;
+        accumulate_pass_->accumulated_spp = accumulated_spp_;
+    }
+
     // ── Command buffer recording ──────────────────────────────────────────
     VkCommandBuffer cmd = command_buffer_.begin_frame(frame_index);
 
-    // Transition the swapchain image to COLOR_ATTACHMENT_OPTIMAL so that
-    // the ImGuiPass (and later other passes) can render into it.
+    // Ensure descriptor heap writes (done during upload) are visible to GPU
+    bindless_registry_.heap_write_barrier(cmd);
+    // Bind bindless heaps once per frame
+    bindless_registry_.bind_heaps(cmd);
+
+    // Transition the swapchain image to COLOR_ATTACHMENT_OPTIMAL
     rr::rhi::CommandBuffer::image_barrier(
         cmd, swapchain_.image(image_index),
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 
-    // Build the frame context that is passed to every render pass.
+    // Build the frame context
     rr::render::FrameContext frame_context{};
     frame_context.command_buffer       = cmd;
     frame_context.device               = &device_;
@@ -216,10 +277,13 @@ void Application::render_frame()
     frame_context.image_index          = image_index;
     frame_context.frame_index          = frame_index;
     frame_context.delta_time_seconds   = delta_time_seconds_;
+    if (accumulate_pass_)
+        frame_context.accumulated_image = accumulate_pass_->accumulated_image_handle();
 
-    // Execute all render passes.  ImGuiPass opens its own dynamic rendering
-    // scope on the swapchain image and closes it before returning.
     renderer_.render(frame_context);
+
+    // Reset camera_moved flag after executing accumulate pass this frame
+    camera_moved_ = false;
 
     // Transition the swapchain image to PRESENT_SRC_KHR for presentation.
     rr::rhi::CommandBuffer::image_barrier(
@@ -293,9 +357,58 @@ void Application::recreate_swapchain()
 void Application::glfw_resize_callback(GLFWwindow* window, int /*width*/, int /*height*/)
 {
     auto* self = static_cast<Application*>(glfwGetWindowUserPointer(window));
-    if (self != nullptr)
-    {
-        self->framebuffer_resized_ = true;
-    }
+    if (self != nullptr) self->framebuffer_resized_ = true;
 }
+
+void Application::glfw_mouse_button_callback(GLFWwindow* window, int button, int action, int /*mods*/)
+{
+    auto* self = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (self != nullptr) self->camera_.on_mouse_button(button, action, 0);
 }
+
+void Application::glfw_cursor_pos_callback(GLFWwindow* window, double x, double y)
+{
+    auto* self = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (self != nullptr) self->camera_.on_mouse_move(static_cast<float>(x),
+                                                       static_cast<float>(y));
+}
+
+void Application::glfw_scroll_callback(GLFWwindow* window, double /*xoff*/, double yoff)
+{
+    auto* self = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (self != nullptr) self->camera_.on_scroll(0.0, static_cast<double>(yoff));
+}
+
+void Application::one_time_submit(std::function<void(VkCommandBuffer)> fn)
+{
+    // Allocate a temporary command buffer from the pool
+    VkCommandBufferAllocateInfo alloc_info{};
+    alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.commandPool        = command_buffer_.pool();
+    alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = 1;
+
+    VkCommandBuffer tmp_cmd = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(device_.device(), &alloc_info, &tmp_cmd) != VK_SUCCESS)
+        throw std::runtime_error("one_time_submit: vkAllocateCommandBuffers failed.");
+
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(tmp_cmd, &begin_info);
+
+    fn(tmp_cmd);
+
+    vkEndCommandBuffer(tmp_cmd);
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers    = &tmp_cmd;
+    vkQueueSubmit(device_.graphics_queue(), 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(device_.graphics_queue());
+
+    vkFreeCommandBuffers(device_.device(), command_buffer_.pool(), 1, &tmp_cmd);
+}
+
+} // namespace rr::app
