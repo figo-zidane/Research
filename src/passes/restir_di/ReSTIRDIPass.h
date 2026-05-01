@@ -57,6 +57,12 @@ public:
     // accumulated_image barrier in TonemapPass when in ReSTIR DI mode).
     [[nodiscard]] VkImage output_image_handle() const;
 
+    // Transition all owned storage images from UNDEFINED → GENERAL.
+    // Call once inside a one_time_submit after initialize() to satisfy the
+    // Vulkan validation requirement that registered storage-image descriptors
+    // are in the declared layout before the first frame executes.
+    void pre_transition_to_general(VkCommandBuffer cmd);
+
     // Reset temporal history (call on mode switch to avoid stale reservoirs).
     void reset_history()
     {

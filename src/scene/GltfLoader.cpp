@@ -15,8 +15,6 @@
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
-#define TINYGLTF_NO_EXTERNAL_IMAGE
-#define TINYGLTF_NO_FS  // we pass the file ourselves
 #include <tiny_gltf.h>
 #ifdef _MSC_VER
 #  pragma warning(pop)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace rr::render
 {
@@ -31,12 +32,20 @@ public:
     //   mse_history_offset   : circular buffer read start index
     //   mse_latest           : most recent MSE value (-1 = not yet computed)
     //   mse_auto_update      : toggle auto-MSE every N frames
+    //   gltf_path_input      : text buffer for the glTF path input field
+    //   load_cornell_request : set to true when user clicks "Load Cornell Box"
+    //   load_gltf_request    : set to true when user clicks "Load glTF"
+    //   current_scene_name   : display name of the currently loaded scene
     void build(const rr::render::Renderer& renderer,
                float                       delta_time_seconds,
                uint32_t                    accumulated_spp,
                bool&                       screenshot_request,
                bool&                       show_restir,
                bool&                       mse_compare,
+               std::string&                gltf_path_input,
+               bool&                       load_cornell_request,
+               bool&                       load_gltf_request,
+               const std::string&          current_scene_name,
                const rr::shader::HotReload* hot_reload        = nullptr,
                const float*                 mse_history       = nullptr,
                uint32_t                     mse_history_count  = 0,

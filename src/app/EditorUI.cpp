@@ -6,6 +6,9 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+#include <cstring>
+
 namespace rr::app
 {
 void EditorUI::build(const rr::render::Renderer& renderer,
@@ -14,6 +17,10 @@ void EditorUI::build(const rr::render::Renderer& renderer,
                      bool&        screenshot_request,
                      bool&        show_restir,
                      bool&        mse_compare,
+                     std::string& gltf_path_input,
+                     bool&        load_cornell_request,
+                     bool&        load_gltf_request,
+                     const std::string& current_scene_name,
                      const rr::shader::HotReload* hot_reload,
                      const float*  mse_history,
                      uint32_t      mse_history_count,
@@ -46,6 +53,30 @@ void EditorUI::build(const rr::render::Renderer& renderer,
     ImGui::SetNextWindowBgAlpha(0.75f);
     if (ImGui::Begin("Renderer"))
     {
+        // ── Scene loading ───────────────────────────────────────────────
+        if (ImGui::CollapsingHeader("Scene"))
+        {
+            ImGui::Text("Current: %s", current_scene_name.c_str());
+            ImGui::Spacing();
+            if (ImGui::Button("Load Cornell Box"))
+                load_cornell_request = true;
+            ImGui::Spacing();
+            ImGui::SetNextItemWidth(-1.0f);
+            {
+                char buf[512];
+                const size_t copy_len = std::min(gltf_path_input.size(), sizeof(buf) - 1);
+                std::memcpy(buf, gltf_path_input.data(), copy_len);
+                buf[copy_len] = '\0';
+                if (ImGui::InputText("##gltf_path", buf, sizeof(buf)))
+                    gltf_path_input = buf;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Load glTF") && !gltf_path_input.empty())
+                load_gltf_request = true;
+            ImGui::TextDisabled("(Drag & Drop .gltf / .glb onto the window)");
+            ImGui::TextDisabled("Note: each reload allocates new bindless slots.");
+        }
+
         // ── Controls help ─────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Controls"))
         {

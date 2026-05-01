@@ -155,19 +155,23 @@ void Image::upload_host(Device& device,
 {
     // Use hostImageCopy (Vulkan 1.4 / VK_EXT_host_image_copy) to upload
     // pixel data directly without a staging buffer.
+    //
+    // Images created with VK_IMAGE_USAGE_HOST_TRANSFER_BIT may NOT have
+    // VK_IMAGE_USAGE_TRANSFER_DST_BIT, so VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    // is illegal. VK_IMAGE_LAYOUT_GENERAL is always a valid host-copy destination.
 
-    // Transition UNDEFINED → TRANSFER_DST_OPTIMAL.
+    // Transition UNDEFINED → GENERAL.
     {
         VkHostImageLayoutTransitionInfo transition{};
         transition.sType            = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
         transition.image            = image_;
         transition.oldLayout        = VK_IMAGE_LAYOUT_UNDEFINED;
-        transition.newLayout        = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        transition.newLayout        = VK_IMAGE_LAYOUT_GENERAL;
         transition.subresourceRange = {aspect_, 0, mip_levels_, 0, array_layers_};
 
         if (vkTransitionImageLayout(device.device(), 1, &transition) != VK_SUCCESS)
         {
-            throw std::runtime_error("vkTransitionImageLayout (UNDEFINED→TRANSFER_DST) failed.");
+            throw std::runtime_error("vkTransitionImageLayout (UNDEFINED→GENERAL) failed.");
         }
     }
 
@@ -185,7 +189,7 @@ void Image::upload_host(Device& device,
         VkCopyMemoryToImageInfo copy_info{};
         copy_info.sType          = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO;
         copy_info.dstImage       = image_;
-        copy_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        copy_info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
         copy_info.regionCount    = 1;
         copy_info.pRegions       = &copy;
 
@@ -195,18 +199,18 @@ void Image::upload_host(Device& device,
         }
     }
 
-    // Transition TRANSFER_DST_OPTIMAL → final_layout.
+    // Transition GENERAL → final_layout.
     {
         VkHostImageLayoutTransitionInfo transition{};
         transition.sType            = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
         transition.image            = image_;
-        transition.oldLayout        = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        transition.oldLayout        = VK_IMAGE_LAYOUT_GENERAL;
         transition.newLayout        = final_layout;
         transition.subresourceRange = {aspect_, 0, mip_levels_, 0, array_layers_};
 
         if (vkTransitionImageLayout(device.device(), 1, &transition) != VK_SUCCESS)
         {
-            throw std::runtime_error("vkTransitionImageLayout (TRANSFER_DST→final) failed.");
+            throw std::runtime_error("vkTransitionImageLayout (GENERAL→final) failed.");
         }
     }
 }

@@ -7,13 +7,16 @@
 #include "passes/pathtracer_reference/PathTracerPass.h"
 #include "passes/restir_di/ReSTIRDIPass.h"
 #include "passes/tonemap/TonemapPass.h"
+#include "scene/GltfLoader.h"
 
 // stb_image_write: implementation is in GltfLoader.cpp; only include header here.
 #include <stb_image_write.h>
 
 #include <algorithm>  // std::clamp
+#include <cctype>     // std::tolower
 #include <cmath>      // std::pow
 #include <ctime>      // std::time
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -132,6 +135,7 @@ void Application::initialize_window()
     glfwSetMouseButtonCallback(window_, &Application::glfw_mouse_button_callback);
     glfwSetCursorPosCallback(window_, &Application::glfw_cursor_pos_callback);
     glfwSetScrollCallback(window_, &Application::glfw_scroll_callback);
+    glfwSetDropCallback(window_, &Application::glfw_drop_callback);
 
     rr::core::log()->info("Created window {} ({}x{})", title_, width_, height_);
 }
@@ -244,6 +248,9 @@ void Application::initialize_renderer()
             dep.pImageMemoryBarriers    = &b;
             vkCmdPipelineBarrier2(cmd, &dep);
         }
+        // ReSTIR DI pass: all owned storage images must be GENERAL before first frame.
+        if (restir_di_pass_)
+            restir_di_pass_->pre_transition_to_general(cmd);
     });
 
     // Hot reload — watch shaders directory
@@ -304,9 +311,24 @@ void Application::render_frame()
                                     ? (mse_history_pos_ % kMseHistoryLen)
                                     : 0u;
     editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_,
-                     show_restir_, mse_compare_, &hot_reload_,
+                     show_restir_, mse_compare_,
+                     gltf_path_input_, load_cornell_request_, load_gltf_request_,
+                     current_scene_name_,
+                     &hot_reload_,
                      mse_history_.data(), mse_count, mse_offset,
                      mse_latest_, &mse_auto_update_);
+
+    // ── Scene reload requests ─────────────────────────────────────────────
+    if (load_cornell_request_)
+    {
+        load_cornell_request_ = false;
+        reload_scene_cornell();
+    }
+    else if (load_gltf_request_)
+    {
+        load_gltf_request_ = false;
+        reload_scene_gltf(gltf_path_input_);
+    }
 
     // ── Display mode switch detection ─────────────────────────────────────
     if (show_restir_ != prev_show_restir_)
@@ -506,6 +528,79 @@ void Application::glfw_cursor_pos_callback(GLFWwindow* window, double x, double 
 
 void Application::glfw_scroll_callback(GLFWwindow* /*window*/, double /*xoff*/, double /*yoff*/)
 {
+}
+
+void Application::glfw_drop_callback(GLFWwindow* window, int count, const char** paths)
+{
+    auto* self = static_cast<Application*>(glfwGetWindowUserPointer(window));
+    if (self == nullptr || count <= 0 || paths == nullptr) return;
+
+    // Accept the first dropped file that looks like a glTF/glb.
+    for (int i = 0; i < count; ++i)
+    {
+        if (paths[i] == nullptr) continue;
+        std::string p(paths[i]);
+        const auto ext_pos = p.rfind('.');
+        if (ext_pos == std::string::npos) continue;
+        std::string ext = p.substr(ext_pos);
+        // lowercase comparison
+        for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (ext == ".gltf" || ext == ".glb")
+        {
+            self->gltf_path_input_   = p;
+            self->load_gltf_request_ = true;
+            break;
+        }
+    }
+}
+
+void Application::reload_scene_cornell()
+{
+    vkDeviceWaitIdle(device_.device());
+    scene_.destroy(device_);
+    scene_.clear_cpu_data();
+    scene_.build_cornell_box();
+    scene_.upload(device_, bindless_registry_,
+        [this](std::function<void(VkCommandBuffer)> fn) { one_time_submit(fn); });
+    camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
+    camera_ = rr::scene::Camera{};
+    camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
+    // Update passes that cache scene handles
+    if (tonemap_pass_) tonemap_pass_->linear_sampler_idx = scene_.gpu_handles().linear_sampler_idx;
+    accumulated_spp_      = 0;
+    camera_moved_         = true;
+    current_scene_name_   = "Cornell Box";
+    if (restir_di_pass_) restir_di_pass_->reset_history();
+    rr::core::log()->info("[Scene] Reloaded Cornell Box");
+}
+
+void Application::reload_scene_gltf(const std::string& path)
+{
+    if (path.empty()) return;
+    vkDeviceWaitIdle(device_.device());
+    scene_.destroy(device_);
+    scene_.clear_cpu_data();
+    if (!rr::scene::GltfLoader::load(path, scene_))
+    {
+        // Load failed: fall back to Cornell Box
+        rr::core::log()->warn("[Scene] glTF load failed for '{}', falling back to Cornell Box", path);
+        scene_.build_cornell_box();
+        current_scene_name_ = "Cornell Box";
+    }
+    else
+    {
+        current_scene_name_ = std::filesystem::path(path).filename().string();
+    }
+    scene_.upload(device_, bindless_registry_,
+        [this](std::function<void(VkCommandBuffer)> fn) { one_time_submit(fn); });
+    camera_ = rr::scene::Camera{};
+    camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
+    // Update passes that cache scene handles
+    if (tonemap_pass_) tonemap_pass_->linear_sampler_idx = scene_.gpu_handles().linear_sampler_idx;
+    accumulated_spp_  = 0;
+    camera_moved_     = true;
+    if (restir_di_pass_) restir_di_pass_->reset_history();
+    rr::core::log()->info("[Scene] Loaded '{}'", current_scene_name_);
 }
 
 void Application::one_time_submit(std::function<void(VkCommandBuffer)> fn)

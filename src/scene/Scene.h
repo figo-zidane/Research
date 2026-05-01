@@ -98,6 +98,10 @@ public:
     // ── Cornell Box factory ────────────────────────────────────────────────
     void build_cornell_box();
 
+    // Reset all CPU-side arrays so the scene can be rebuilt from scratch.
+    // Call destroy() first to free GPU resources.
+    void clear_cpu_data();
+
     // ── GPU upload ────────────────────────────────────────────────────────
     // Upload to GPU, register with BindlessRegistry, build BLAS/TLAS.
     // one_time_submit: Application-provided function that accepts a recording

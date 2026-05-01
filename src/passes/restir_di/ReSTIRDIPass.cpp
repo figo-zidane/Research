@@ -207,6 +207,19 @@ VkImage ReSTIRDIPass::output_image_handle() const
     return output_img_.handle();
 }
 
+void ReSTIRDIPass::pre_transition_to_general(VkCommandBuffer cmd)
+{
+    VkImage imgs[] = {
+        gbuf_pos_.handle(),
+        gbuf_norm_.handle(),
+        reservoir_[0].handle(),
+        reservoir_[1].handle(),
+        output_img_.handle(),
+    };
+    image_barrier_compute(cmd, imgs, 5, 0, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+                           VK_IMAGE_LAYOUT_UNDEFINED);
+}
+
 // ── Pipeline management ───────────────────────────────────────────────────────
 
 void ReSTIRDIPass::create_pipelines(rr::rhi::Device& device,

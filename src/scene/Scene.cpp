@@ -527,6 +527,19 @@ void Scene::upload(rr::rhi::Device&           device,
                        blases_.size(), handles_.tlas_idx);
 }
 
+void Scene::clear_cpu_data()
+{
+    name_         = "Untitled";
+    meshes_.clear();
+    materials_.clear();
+    instances_.clear();
+    lights_.clear();
+    all_vertices_.clear();
+    all_indices_.clear();
+    images_.clear();
+    handles_ = SceneGpuHandles{};
+}
+
 void Scene::destroy(rr::rhi::Device& device)
 {
     tlas_.destroy(device);

@@ -62,11 +62,16 @@ private:
     // Reads back a 64×64 center crop from both images.
     void compute_mse();
 
+    // Scene reload helpers.
+    void reload_scene_cornell();
+    void reload_scene_gltf(const std::string& path);
+
     // GLFW callbacks
     static void glfw_resize_callback(GLFWwindow* window, int width, int height);
     static void glfw_mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
     static void glfw_cursor_pos_callback(GLFWwindow* window, double x, double y);
     static void glfw_scroll_callback(GLFWwindow* window, double xoff, double yoff);
+    static void glfw_drop_callback(GLFWwindow* window, int count, const char** paths);
 
     // ── Core subsystems ───────────────────────────────────────────────────
     GLFWwindow*               window_   = nullptr;
@@ -110,6 +115,12 @@ private:
     bool show_restir_      = false;
     bool prev_show_restir_ = false;
     bool mse_compare_      = false;
+
+    // ── Scene state ────────────────────────────────────────────────────
+    std::string current_scene_name_   = "Cornell Box";
+    std::string gltf_path_input_;
+    bool        load_cornell_request_ = false;
+    bool        load_gltf_request_    = false;
 
     // ── MSE comparison ────────────────────────────────────────────────────
     static constexpr uint32_t    kMseCropSize   = 64;   // 64×64 pixel crop
