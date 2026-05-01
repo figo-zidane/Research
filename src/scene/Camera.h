@@ -71,6 +71,9 @@ private:
     float last_mouse_y_     = 0.0f;
     bool  first_mouse_      = true;
 
+    // Dirty flag set by on_mouse_move() so update() can detect rotation
+    bool view_dirty_ = false;
+
     // Movement speed
     float move_speed_   = 2.0f;  // m/s
     float look_speed_   = 0.15f; // degrees / pixel

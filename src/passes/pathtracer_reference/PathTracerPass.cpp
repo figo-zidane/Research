@@ -213,7 +213,7 @@ void PathTracerPass::execute(rr::render::FrameContext& fc)
     pc.num_instances     = scene.instance_count();
     pc.num_lights        = scene.light_count();
     pc.linear_sampler_idx = handles.linear_sampler_idx;
-    pc.frame_seed        = fc.frame_index;
+    pc.frame_seed        = frame_count_++;
     pc.max_bounces       = max_bounces;
 
     VkPushDataInfoEXT push_info{};

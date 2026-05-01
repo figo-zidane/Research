@@ -65,7 +65,9 @@ bool Camera::update(GLFWwindow* window, float delta_time)
     // Store previous VP for motion vectors.
     prev_view_proj_ = old_vp;
 
-    return moved || (proj_ * view_ != old_vp);
+    bool result = moved || view_dirty_ || (proj_ * view_ != old_vp);
+    view_dirty_ = false;
+    return result;
 }
 
 void Camera::on_mouse_button(int button, int action, int /*mods*/)
@@ -105,6 +107,7 @@ void Camera::on_mouse_move(double xpos, double ypos)
         pitch_ += dy * look_speed_;
         pitch_  = std::clamp(pitch_, -89.0f, 89.0f);
         rebuild_matrices();
+        view_dirty_ = true;
     }
 }
 

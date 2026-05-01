@@ -61,6 +61,8 @@ private:
     rr::shader::ShaderReflection reflection_;
     rr::rhi::ComputePipeline     pipeline_;
 
+    uint32_t frame_count_ = 0;
+
     bool initialized_ = false;
 };
 
