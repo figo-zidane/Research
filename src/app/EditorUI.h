@@ -36,6 +36,7 @@ public:
                uint32_t                    accumulated_spp,
                bool&                       screenshot_request,
                bool&                       show_restir,
+               bool&                       mse_compare,
                const rr::shader::HotReload* hot_reload        = nullptr,
                const float*                 mse_history       = nullptr,
                uint32_t                     mse_history_count  = 0,

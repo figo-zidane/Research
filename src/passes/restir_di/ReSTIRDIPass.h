@@ -57,6 +57,14 @@ public:
     // accumulated_image barrier in TonemapPass when in ReSTIR DI mode).
     [[nodiscard]] VkImage output_image_handle() const;
 
+    // Reset temporal history (call on mode switch to avoid stale reservoirs).
+    void reset_history()
+    {
+        reservoir_flip_ = 0;
+        first_execute_  = true;
+        frame_count_    = 0;
+    }
+
     // ── Per-pass settings (modifiable from ImGui) ─────────────────────────
 
     bool     temporal_enable        = true;

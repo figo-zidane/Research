@@ -107,7 +107,9 @@ private:
     bool     save_screenshot_   = false;
 
     // ── Display mode (false = PathTracer accumulated, true = ReSTIR DI) ──
-    bool show_restir_ = false;
+    bool show_restir_      = false;
+    bool prev_show_restir_ = false;
+    bool mse_compare_      = false;
 
     // ── MSE comparison ────────────────────────────────────────────────────
     static constexpr uint32_t    kMseCropSize   = 64;   // 64×64 pixel crop

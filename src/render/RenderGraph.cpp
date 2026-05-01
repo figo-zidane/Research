@@ -15,7 +15,8 @@ void RenderGraph::execute(FrameContext& frame_context)
 {
     for (const auto& pass : passes_)
     {
-        pass->execute(frame_context);
+        if (pass->is_enabled())
+            pass->execute(frame_context);
     }
 }
 

@@ -38,5 +38,11 @@ public:
     virtual void render_ui() {}
     virtual void on_resize(VkExtent2D /*new_extent*/) {}
     virtual void execute(FrameContext& frame_context) = 0;
+
+    void set_enabled(bool v)          { enabled_ = v; }
+    [[nodiscard]] bool is_enabled() const { return enabled_; }
+
+protected:
+    bool enabled_ = true;
 };
 }

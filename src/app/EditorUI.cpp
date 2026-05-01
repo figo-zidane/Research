@@ -13,6 +13,7 @@ void EditorUI::build(const rr::render::Renderer& renderer,
                      uint32_t     accumulated_spp,
                      bool&        screenshot_request,
                      bool&        show_restir,
+                     bool&        mse_compare,
                      const rr::shader::HotReload* hot_reload,
                      const float*  mse_history,
                      uint32_t      mse_history_count,
@@ -45,11 +46,27 @@ void EditorUI::build(const rr::render::Renderer& renderer,
     ImGui::SetNextWindowBgAlpha(0.75f);
     if (ImGui::Begin("Renderer"))
     {
+        // ── Controls help ─────────────────────────────────────────────────
+        if (ImGui::CollapsingHeader("Controls"))
+        {
+            ImGui::BulletText("W/A/S/D      : Move (while right-dragging)");
+            ImGui::BulletText("E / Q        : Move up / down");
+            ImGui::BulletText("Right drag   : Rotate view");
+            ImGui::BulletText("Shift        : 4x speed");
+            ImGui::BulletText("Scroll wheel : Move forward / back");
+        }
+
         // ── Display mode ──────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Display Mode", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::RadioButton("PathTracer (accumulated)", reinterpret_cast<int*>(&show_restir), 0);
             ImGui::RadioButton("ReSTIR DI (1 spp)",        reinterpret_cast<int*>(&show_restir), 1);
+            ImGui::Spacing();
+            ImGui::Checkbox("Compute both for MSE comparison", &mse_compare);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Both PathTracer and ReSTIR DI run every frame.\nUse when comparing MSE. Disables GPU optimisation.");
         }
 
         // ── MSE graph ────────────────────────────────────────────────────

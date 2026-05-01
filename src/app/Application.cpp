@@ -304,9 +304,31 @@ void Application::render_frame()
                                     ? (mse_history_pos_ % kMseHistoryLen)
                                     : 0u;
     editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_,
-                     show_restir_, &hot_reload_,
+                     show_restir_, mse_compare_, &hot_reload_,
                      mse_history_.data(), mse_count, mse_offset,
                      mse_latest_, &mse_auto_update_);
+
+    // ── Display mode switch detection ─────────────────────────────────────
+    if (show_restir_ != prev_show_restir_)
+    {
+        accumulated_spp_ = 0;
+        camera_moved_    = true;
+        if (restir_di_pass_) restir_di_pass_->reset_history();
+        prev_show_restir_ = show_restir_;
+    }
+    // ── Pass enable/disable based on display mode ─────────────────────────
+    if (!mse_compare_)
+    {
+        if (accumulate_pass_)  accumulate_pass_->set_enabled(!show_restir_);
+        if (pathtracer_pass_)  pathtracer_pass_->set_enabled(!show_restir_);
+        if (restir_di_pass_)   restir_di_pass_->set_enabled(show_restir_);
+    }
+    else
+    {
+        if (accumulate_pass_)  accumulate_pass_->set_enabled(true);
+        if (pathtracer_pass_)  pathtracer_pass_->set_enabled(true);
+        if (restir_di_pass_)   restir_di_pass_->set_enabled(true);
+    }
 
     // ── Hot reload ────────────────────────────────────────────────────────
     if (hot_reload_.pump(device_))
