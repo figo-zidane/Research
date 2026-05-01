@@ -53,7 +53,6 @@ void EditorUI::build(const rr::render::Renderer& renderer,
             ImGui::BulletText("E / Q        : Move up / down");
             ImGui::BulletText("Right drag   : Rotate view");
             ImGui::BulletText("Shift        : 4x speed");
-            ImGui::BulletText("Scroll wheel : Move forward / back");
         }
 
         // ── Display mode ──────────────────────────────────────────────────

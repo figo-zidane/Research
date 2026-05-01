@@ -14,7 +14,7 @@ namespace rr::scene
 //
 // Camera matrices are updated once per frame via update().
 // The caller is responsible for passing GLFW window events by calling
-// on_mouse_button() / on_mouse_move() / on_scroll() from GLFW callbacks.
+// on_mouse_button() / on_mouse_move() from GLFW callbacks.
 class Camera
 {
 public:
@@ -34,7 +34,6 @@ public:
     // ── GLFW event callbacks ───────────────────────────────────────────────
     void on_mouse_button(int button, int action, int mods);
     void on_mouse_move(double xpos, double ypos);
-    void on_scroll(double xoffset, double yoffset);
     void on_resize(float aspect);
 
     // ── Accessors ─────────────────────────────────────────────────────────
@@ -75,7 +74,6 @@ private:
     // Movement speed
     float move_speed_   = 2.0f;  // m/s
     float look_speed_   = 0.15f; // degrees / pixel
-    float scroll_speed_ = 0.5f;
 
     // Matrices
     glm::mat4 view_           = glm::mat4(1.0f);

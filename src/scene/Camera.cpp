@@ -108,13 +108,6 @@ void Camera::on_mouse_move(double xpos, double ypos)
     }
 }
 
-void Camera::on_scroll(double /*xoffset*/, double yoffset)
-{
-    glm::vec3 fwd = forward();
-    position_ += fwd * (static_cast<float>(yoffset) * scroll_speed_);
-    rebuild_matrices();
-}
-
 void Camera::on_resize(float aspect)
 {
     aspect_ = aspect;

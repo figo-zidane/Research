@@ -504,10 +504,8 @@ void Application::glfw_cursor_pos_callback(GLFWwindow* window, double x, double 
                                                        static_cast<float>(y));
 }
 
-void Application::glfw_scroll_callback(GLFWwindow* window, double /*xoff*/, double yoff)
+void Application::glfw_scroll_callback(GLFWwindow* /*window*/, double /*xoff*/, double /*yoff*/)
 {
-    auto* self = static_cast<Application*>(glfwGetWindowUserPointer(window));
-    if (self != nullptr) self->camera_.on_scroll(0.0, static_cast<double>(yoff));
 }
 
 void Application::one_time_submit(std::function<void(VkCommandBuffer)> fn)
