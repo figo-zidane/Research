@@ -57,6 +57,17 @@ public:
     // accumulated_image barrier in TonemapPass when in ReSTIR DI mode).
     [[nodiscard]] VkImage output_image_handle() const;
 
+    // Set G-buffer image handles and bindless indices produced by GBufferPass.
+    // Must be called before the first execute().
+    void set_gbuffer_indices(uint32_t pos_idx, VkImage pos_image,
+                             uint32_t norm_idx, VkImage norm_image)
+    {
+        gbuf_pos_idx_    = pos_idx;
+        gbuf_pos_image_  = pos_image;
+        gbuf_norm_idx_   = norm_idx;
+        gbuf_norm_image_ = norm_image;
+    }
+
     // Transition all owned storage images from UNDEFINED → GENERAL.
     // Call once inside a one_time_submit after initialize() to satisfy the
     // Vulkan validation requirement that registered storage-image descriptors
@@ -100,11 +111,11 @@ private:
     rr::rhi::Device*           device_   = nullptr;
     rr::rhi::BindlessRegistry* registry_ = nullptr;
 
-    // G-buffer
-    rr::rhi::Image gbuf_pos_;   // float4(world_pos.xyz, ray_t)
-    rr::rhi::Image gbuf_norm_;  // float4(normal.xyz, asfloat(material_index))
-    uint32_t       gbuf_pos_idx_  = UINT32_MAX;
-    uint32_t       gbuf_norm_idx_ = UINT32_MAX;
+    // G-buffer bindless indices and VkImage handles (set via set_gbuffer_indices()).
+    uint32_t gbuf_pos_idx_    = UINT32_MAX;
+    uint32_t gbuf_norm_idx_   = UINT32_MAX;
+    VkImage  gbuf_pos_image_  = VK_NULL_HANDLE;
+    VkImage  gbuf_norm_image_ = VK_NULL_HANDLE;
 
     // Reservoir ping-pong (A and B alternate as current/previous each frame)
     rr::rhi::Image reservoir_[2];

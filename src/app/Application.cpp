@@ -190,6 +190,11 @@ void Application::initialize_renderer()
 
     VkExtent2D extent{static_cast<uint32_t>(width_), static_cast<uint32_t>(height_)};
 
+    // GBufferPass — rasterize scene into position/normal/material_id targets.
+    // Must run before ReSTIRDIPass which reads its outputs.
+    gbuffer_pass_ = renderer_.add_pass<rr::passes::gbuffer::GBufferPass>();
+    gbuffer_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+
     pathtracer_pass_ = renderer_.add_pass<rr::passes::pathtracer::PathTracerPass>();
     pathtracer_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
 
@@ -200,6 +205,9 @@ void Application::initialize_renderer()
     // ReSTIR DI pass — must run before TonemapPass so its output is ready for sampling
     restir_di_pass_ = renderer_.add_pass<rr::passes::restir_di::ReSTIRDIPass>();
     restir_di_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+    restir_di_pass_->set_gbuffer_indices(
+        gbuffer_pass_->position_storage_idx, gbuffer_pass_->position_image_handle(),
+        gbuffer_pass_->normal_storage_idx,   gbuffer_pass_->normal_image_handle());
 
     tonemap_pass_ = renderer_.add_pass<rr::passes::tonemap::TonemapPass>();
     tonemap_pass_->initialize(device_, slang_session_, bindless_registry_, swapchain_.image_format());
@@ -248,6 +256,10 @@ void Application::initialize_renderer()
             dep.pImageMemoryBarriers    = &b;
             vkCmdPipelineBarrier2(cmd, &dep);
         }
+        // GBufferPass storage images: transition UNDEFINED → GENERAL so the
+        // bindless heap sees the correct layout before the first frame executes.
+        if (gbuffer_pass_)
+            gbuffer_pass_->pre_transition_to_general(cmd);
         // ReSTIR DI pass: all owned storage images must be GENERAL before first frame.
         if (restir_di_pass_)
             restir_di_pass_->pre_transition_to_general(cmd);

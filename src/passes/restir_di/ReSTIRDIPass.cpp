@@ -166,8 +166,6 @@ void ReSTIRDIPass::create_images(rr::rhi::Device& device,
         return registry.register_storage_image(device, img.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
     };
 
-    gbuf_pos_idx_  = make_storage(gbuf_pos_,       "restir_gbuf_pos");
-    gbuf_norm_idx_ = make_storage(gbuf_norm_,      "restir_gbuf_norm");
     reservoir_idx_[0] = make_storage(reservoir_[0], "restir_reservoir_A");
     reservoir_idx_[1] = make_storage(reservoir_[1], "restir_reservoir_B");
 
@@ -195,8 +193,6 @@ void ReSTIRDIPass::create_images(rr::rhi::Device& device,
 
 void ReSTIRDIPass::destroy_images(rr::rhi::Device& device)
 {
-    gbuf_pos_.destroy(device);
-    gbuf_norm_.destroy(device);
     reservoir_[0].destroy(device);
     reservoir_[1].destroy(device);
     output_img_.destroy(device);
@@ -210,13 +206,11 @@ VkImage ReSTIRDIPass::output_image_handle() const
 void ReSTIRDIPass::pre_transition_to_general(VkCommandBuffer cmd)
 {
     VkImage imgs[] = {
-        gbuf_pos_.handle(),
-        gbuf_norm_.handle(),
         reservoir_[0].handle(),
         reservoir_[1].handle(),
         output_img_.handle(),
     };
-    image_barrier_compute(cmd, imgs, 5, 0, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
+    image_barrier_compute(cmd, imgs, 3, 0, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
                            VK_IMAGE_LAYOUT_UNDEFINED);
 }
 
@@ -364,14 +358,16 @@ void ReSTIRDIPass::execute(rr::render::FrameContext& fc)
     push_info.data.size    = sizeof(pc);
 
     // ── cs_initial ────────────────────────────────────────────────────────
-    // G-Buffer: always discard (UNDEFINED → GENERAL).
+    // G-buffer is written by cs_initial itself (ray-traced primary hits).
+    // GBufferPass may have written the same slots beforehand; cs_initial
+    // overwrites them.  Transition from GENERAL (post-GBufferPass) → GENERAL,
+    // discarding old content (oldLayout = UNDEFINED for discard-transition).
     {
-        VkImage imgs[] = {gbuf_pos_.handle(), gbuf_norm_.handle()};
-        image_barrier_compute(cmd, imgs, 2, 0, VK_ACCESS_2_SHADER_WRITE_BIT,
-                               VK_IMAGE_LAYOUT_UNDEFINED);
+        VkImage gbuf_imgs[] = {gbuf_pos_image_, gbuf_norm_image_};
+        image_barrier_compute(cmd, gbuf_imgs, 2, 0, VK_ACCESS_2_SHADER_WRITE_BIT,
+                               VK_IMAGE_LAYOUT_GENERAL);
     }
-    // reservoir_curr: first frame starts in UNDEFINED, subsequent in GENERAL
-    // so temporal reuse can see the previous frame's content.
+    // reservoir_curr: first frame starts in UNDEFINED, subsequent in GENERAL.
     {
         VkImage imgs[] = {reservoir_[reservoir_flip_].handle()};
         image_barrier_compute(cmd, imgs, 1, 0, VK_ACCESS_2_SHADER_WRITE_BIT,
@@ -383,10 +379,9 @@ void ReSTIRDIPass::execute(rr::render::FrameContext& fc)
     vkCmdPushDataEXT(cmd, &push_info);
     vkCmdDispatch(cmd, gx, gy, 1);
 
-    // Barrier: G-buffer and reservoir_curr written → readable by temporal pass.
-    // Use GENERAL as oldLayout (images are already in GENERAL from above).
+    // Barrier: G-buffer and reservoir_curr written → readable by temporal/spatial passes.
     {
-        VkImage imgs[] = {gbuf_pos_.handle(), gbuf_norm_.handle(),
+        VkImage imgs[] = {gbuf_pos_image_, gbuf_norm_image_,
                           reservoir_[reservoir_flip_].handle()};
         image_barrier_compute(cmd, imgs, 3,
                                VK_ACCESS_2_SHADER_WRITE_BIT,

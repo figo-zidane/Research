@@ -48,13 +48,15 @@ VSOutput vs_main(uint vertex_id : SV_VertexID)
     GpuCameraData cam = gScene[pc.camera_buf_idx].Load<GpuCameraData>(0);
     float4x4 view = cam.view;
 
-    // Rebuild projection from inv_proj[1][1] = tan(fov/2), near/far
-    float tan_half_fov = cam.inv_proj[1][1];  // [row][col]
+    // Rebuild projection.
+    // inv_proj[1][1] = 1/(proj[1][1]).  proj[1][1] = -f after Vulkan Y-flip,
+    // so inv_proj[1][1] = -1/f (negative).  Take abs to recover f.
+    float tan_half_fov = abs(cam.inv_proj[1][1]);  // = 1/f = tan(fov/2)
     float aspect = float(cam.screen_width) / float(cam.screen_height);
     float near_z = cam.near_plane;
     float far_z  = cam.far_plane;
     float f = 1.0f / tan_half_fov;
-    // Row-major proj matrix for Vulkan (Y already negative via camera Vulkan flip)
+    // Row-major proj matrix for Vulkan (Y-flip applied via -f on row 1)
     float4x4 proj = float4x4(
         float4(f / aspect, 0,   0,                              0),
         float4(0,         -f,   0,                              0),
@@ -90,7 +92,8 @@ FSOutput fs_main(VSOutput inp)
 {
     FSOutput o;
     o.position    = float4(inp.world_pos, 1.0);
-    o.normal      = float4(normalize(inp.world_normal), 0.0);
+    // normal.w stores material_index as float bits (read back with asuint in shaders)
+    o.normal      = float4(normalize(inp.world_normal), asfloat(inp.material_id));
     o.material_id = inp.material_id;
     return o;
 }

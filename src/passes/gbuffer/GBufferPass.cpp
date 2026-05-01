@@ -80,27 +80,28 @@ void GBufferPass::create_images(rr::rhi::Device& device,
         VK_IMAGE_USAGE_STORAGE_BIT          |
         VK_IMAGE_USAGE_SAMPLED_BIT;
 
-    // World-space position
+    // World-space position (32F to avoid precision loss at mm scale)
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R16G16B16A16_SFLOAT;
+        d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
         d.extent     = e3;
         d.usage      = storage_usage;
         d.debug_name = "gbuffer_position";
         position_img_.create(device, d);
         position_storage_idx = registry.register_storage_image(
-            device, position_img_.handle(), VK_FORMAT_R16G16B16A16_SFLOAT);
+            device, position_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
     }
-    // World-space normal
+    // World-space normal + material_id packed in .w as asfloat(material_id).
+    // 32F required: material_id values produce denorm floats that 16F flushes to 0.
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R16G16B16A16_SFLOAT;
+        d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
         d.extent     = e3;
         d.usage      = storage_usage;
         d.debug_name = "gbuffer_normal";
         normal_img_.create(device, d);
         normal_storage_idx = registry.register_storage_image(
-            device, normal_img_.handle(), VK_FORMAT_R16G16B16A16_SFLOAT);
+            device, normal_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
     }
     // Material ID (R32_UINT as RGBA8 is not supported for storage everywhere)
     // Use R32_UINT for storage + sampled.
@@ -144,8 +145,8 @@ void GBufferPass::create_pipeline(rr::rhi::Device& device,
     desc.frag_entry   = 1;
     desc.registry     = &registry;
     desc.color_formats = {
-        VK_FORMAT_R16G16B16A16_SFLOAT,  // position
-        VK_FORMAT_R16G16B16A16_SFLOAT,  // normal
+        VK_FORMAT_R32G32B32A32_SFLOAT,  // position (32F for sub-mm precision)
+        VK_FORMAT_R32G32B32A32_SFLOAT,  // normal + material_id packed in .w
         VK_FORMAT_R32_UINT              // material id
     };
     desc.depth_format  = VK_FORMAT_D32_SFLOAT;
@@ -155,6 +156,31 @@ void GBufferPass::create_pipeline(rr::rhi::Device& device,
     desc.cull_mode     = VK_CULL_MODE_BACK_BIT;
     desc.debug_name    = "gbuffer_pipeline";
     pipeline_.create(device, desc);
+}
+
+void GBufferPass::pre_transition_to_general(VkCommandBuffer cmd)
+{
+    auto transition = [&](VkImage img) {
+        VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+        b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b.srcAccessMask       = 0;
+        b.dstStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = img;
+        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
+                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    };
+    transition(position_img_.handle());
+    transition(normal_img_.handle());
+    transition(material_id_img_.handle());
 }
 
 void GBufferPass::on_resize(VkExtent2D new_extent)
@@ -170,9 +196,9 @@ rr::render::RenderPass::Reflection GBufferPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"gbuffer_position",    ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R16G16B16A16_SFLOAT, extent_});
+                          VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
     r.outputs.push_back({"gbuffer_normal",      ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R16G16B16A16_SFLOAT, extent_});
+                          VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
     r.outputs.push_back({"gbuffer_material_id", ResourceDesc::Kind::Texture,
                           VK_FORMAT_R32_UINT, extent_});
     return r;

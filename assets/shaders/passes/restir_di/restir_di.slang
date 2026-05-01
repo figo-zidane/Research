@@ -178,6 +178,10 @@ float compute_p_hat(uint light_idx, float3 hit_pos, float3 normal)
 }
 
 // ── cs_initial — primary ray + initial reservoir ──────────────────────────────
+// Primary ray is traced here to fill the G-buffer slots owned by this pass.
+// GBufferPass writes position/normal via rasterization; ReSTIR reads those slots.
+// However, for correct sub-pixel jitter and to avoid rasterization artifacts,
+// cs_initial traces its own primary ray and overwrites the G-buffer each frame.
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -191,7 +195,7 @@ void cs_initial(uint3 id : SV_DispatchThreadID)
     uint2 pixel = id.xy;
     uint  seed  = make_seed(pixel, pc.frame_seed);
 
-    // Primary ray (same as pathtracer: jittered NDC → world direction)
+    // Primary ray (jittered NDC → world direction)
     float2 ndc      = (float2(pixel) + float2(rand_float(seed), rand_float(seed)))
                       / float2(W, H) * 2.0 - 1.0;
     float4 ray_clip = float4(ndc.x, ndc.y, 1.0, 1.0);
@@ -236,7 +240,7 @@ void cs_initial(uint3 id : SV_DispatchThreadID)
     {
         uint  cand   = uint(rand_float(seed) * float(pc.num_lights)) % pc.num_lights;
         float ph     = compute_p_hat(cand, hit.pos, normal);
-        float w_i    = ph * float(pc.num_lights);  // importance weight
+        float w_i    = ph * float(pc.num_lights);
 
         w_sum  += w_i;
         M_count++;
