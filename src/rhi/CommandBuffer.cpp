@@ -97,7 +97,8 @@ void CommandBuffer::image_barrier(
     barrier.image = image;
     barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-    // Layout-driven scope selection. Phase 1B only needs UNDEFINED -> COLOR_ATTACHMENT
+    // Layout-driven scope selection.
+    // NOTE: Currently only needs UNDEFINED -> COLOR_ATTACHMENT
     // and COLOR_ATTACHMENT -> PRESENT_SRC; richer transitions are added later.
     if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
     {

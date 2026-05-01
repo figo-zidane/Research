@@ -63,7 +63,7 @@ struct GpuInstance
 static_assert(sizeof(GpuInstance) == 80);
 
 // One light. 48 bytes.
-// type: 0=point, 1=directional, 2=area_quad (not used in Phase 4).
+// type: 0=point, 1=directional, 2=area_quad.
 struct GpuLight
 {
     float    position[3];

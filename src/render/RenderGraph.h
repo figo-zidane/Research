@@ -10,8 +10,9 @@
 namespace rr::render
 {
 // RenderGraph holds the ordered list of RenderPasses and drives their
-// execution.  Transient off-screen resource allocation will be wired in
-// during Phase 4; in Phase 3 only the swapchain image is used (injected via
+// execution.
+// NOTE: Transient off-screen resource allocation will be wired in
+// future phase; currently only the swapchain image is used (injected via
 // FrameContext) so the graph itself needs no resource management yet.
 class RenderGraph
 {

@@ -1,7 +1,7 @@
 // RayPayload.slang
 // Ray payload structure shared between path tracer passes.
 // Used with VK_KHR_ray_tracing_pipeline for future phases.
-// For Phase 4, the RayQuery path tracer processes everything inline.
+// For the time being, the RayQuery path tracer processes everything inline.
 
 struct RayPayload
 {
