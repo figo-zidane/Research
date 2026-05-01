@@ -5,17 +5,18 @@
 #include "passes/gbuffer/GBufferPass.h"
 #include "passes/imgui/ImGuiPass.h"
 #include "passes/pathtracer_reference/PathTracerPass.h"
+#include "passes/restir_di/ReSTIRDIPass.h"
 #include "passes/tonemap/TonemapPass.h"
 
 // stb_image_write: implementation is in GltfLoader.cpp; only include header here.
 #include <stb_image_write.h>
 
+#include <algorithm>  // std::clamp
+#include <cmath>      // std::pow
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
-#include <algorithm>  // std::clamp
-#include <cmath>      // std::pow
 
 namespace rr::app
 {
@@ -51,6 +52,12 @@ void Application::shutdown()
     if (pathtracer_pass_) { pathtracer_pass_->shutdown(device_); pathtracer_pass_ = nullptr; }
     if (accumulate_pass_) { accumulate_pass_->shutdown(device_); accumulate_pass_ = nullptr; }
     if (tonemap_pass_)    { tonemap_pass_->shutdown(device_);    tonemap_pass_    = nullptr; }
+    if (restir_di_pass_)  { restir_di_pass_->shutdown(device_);  restir_di_pass_  = nullptr; }
+
+    hot_reload_.shutdown();
+
+    mse_staging_pt_.destroy(device_);
+    mse_staging_ri_.destroy(device_);
 
     if (imgui_pass_ != nullptr)
     {
@@ -185,6 +192,10 @@ void Application::initialize_renderer()
     accumulate_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
     accumulate_pass_->radiance_storage_idx = pathtracer_pass_->radiance_storage_idx;
 
+    // ReSTIR DI pass — must run before TonemapPass so its output is ready for sampling
+    restir_di_pass_ = renderer_.add_pass<rr::passes::restir_di::ReSTIRDIPass>();
+    restir_di_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+
     tonemap_pass_ = renderer_.add_pass<rr::passes::tonemap::TonemapPass>();
     tonemap_pass_->initialize(device_, slang_session_, bindless_registry_, swapchain_.image_format());
     tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
@@ -192,6 +203,58 @@ void Application::initialize_renderer()
 
     imgui_pass_ = renderer_.add_pass<rr::passes::imgui::ImGuiPass>();
     imgui_pass_->initialize(device_, window_, swapchain_);
+
+    // Pre-allocate persistent MSE staging buffers (64×64 crop, RGBA32F).
+    {
+        const VkDeviceSize mse_buf_size =
+            static_cast<VkDeviceSize>(kMseCropSize * kMseCropSize) * 4 * sizeof(float);
+        rr::rhi::BufferDesc desc{};
+        desc.size         = mse_buf_size;
+        desc.usage        = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        desc.memory_usage = 7;          // VMA_MEMORY_USAGE_AUTO
+        desc.alloc_flags  = 0x00000800u; // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+        mse_staging_pt_.create(device_, desc);
+        mse_staging_ri_.create(device_, desc);
+    }
+
+    // Initialize persistent storage images to VK_IMAGE_LAYOUT_GENERAL before the
+    // first frame.  The bindless heap is bound at the start of each frame; the
+    // Vulkan validation layer checks that every registered image is in the layout
+    // it was registered with.  Without this transition, images that are only
+    // transitioned inside their own execute() would still be UNDEFINED when an
+    // earlier pass dispatches.
+    one_time_submit([this](VkCommandBuffer cmd)
+    {
+        // accumulated_image (AccumulatePass): registered as GENERAL storage image.
+        {
+            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            b.srcAccessMask       = 0;
+            b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.image               = accumulate_pass_->accumulated_image_handle();
+            b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers    = &b;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        }
+    });
+
+    // Hot reload — watch shaders directory
+    hot_reload_.initialize("assets/shaders");
+    hot_reload_.register_shader("assets/shaders/passes/pathtracer_reference/pathtracer.slang",
+        [this]() { return pathtracer_pass_->reload_shader(slang_session_); });
+    hot_reload_.register_shader("assets/shaders/passes/accumulate/accumulate.slang",
+        [this]() { return accumulate_pass_->reload_shader(slang_session_); });
+    hot_reload_.register_shader("assets/shaders/passes/tonemap/tonemap.slang",
+        [this]() { return tonemap_pass_->reload_shader(slang_session_); });
+    hot_reload_.register_shader("assets/shaders/passes/restir_di/restir_di.slang",
+        [this]() { return restir_di_pass_->reload_shader(slang_session_); });
 }
 
 void Application::render_frame()
@@ -234,7 +297,23 @@ void Application::render_frame()
 
     // ── ImGui per-frame state machine (before command recording) ──────────
     imgui_pass_->new_frame();
-    editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_);
+    // Compute correct count and offset for the circular MSE history buffer.
+    const uint32_t mse_count  = std::min(mse_history_pos_, kMseHistoryLen);
+    const uint32_t mse_offset = (mse_history_pos_ >= kMseHistoryLen)
+                                    ? (mse_history_pos_ % kMseHistoryLen)
+                                    : 0u;
+    editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_,
+                     show_restir_, &hot_reload_,
+                     mse_history_.data(), mse_count, mse_offset,
+                     mse_latest_, &mse_auto_update_);
+
+    // ── Hot reload ────────────────────────────────────────────────────────
+    if (hot_reload_.pump(device_))
+    {
+        accumulated_spp_ = 0;
+        camera_moved_    = true;
+        screenshot_saved_ = false;
+    }
 
     // ── Camera update ─────────────────────────────────────────────────────
     bool cam_moved = camera_.update(window_, delta_time_seconds_);
@@ -283,7 +362,12 @@ void Application::render_frame()
     frame_context.image_index          = image_index;
     frame_context.frame_index          = frame_index;
     frame_context.delta_time_seconds   = delta_time_seconds_;
-    if (accumulate_pass_)
+    if (show_restir_ && restir_di_pass_)
+    {
+        tonemap_pass_->accumulated_texture_idx = restir_di_pass_->output_texture_idx;
+        frame_context.accumulated_image        = restir_di_pass_->output_image_handle();
+    }
+    else if (accumulate_pass_)
         frame_context.accumulated_image = accumulate_pass_->accumulated_image_handle();
 
     renderer_.render(frame_context);
@@ -301,6 +385,14 @@ void Application::render_frame()
             screenshot_saved_ = true;
         }
     }
+
+    // Reset tonemap source back to accumulate pass for next frame
+    if (!show_restir_ && tonemap_pass_ && accumulate_pass_)
+        tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
+
+    // Periodic MSE computation
+    if (mse_auto_update_ && restir_di_pass_ && ++mse_frame_counter_ % kMseInterval == 0)
+        compute_mse();
 
     // Transition the swapchain image to PRESENT_SRC_KHR for presentation.
     rr::rhi::CommandBuffer::image_barrier(
@@ -533,6 +625,96 @@ void Application::capture_screenshot()
                    static_cast<int>(ext.width) * 4);
     rr::core::log()->info("[Screenshot] Saved '{}' ({}x{}, {} spp)",
                           path, ext.width, ext.height, accumulated_spp_);
+}
+
+void Application::compute_mse()
+{
+    if (!restir_di_pass_ || !accumulate_pass_) return;
+
+    const VkExtent2D ext = swapchain_.extent();
+    const uint32_t   crop = kMseCropSize;
+    if (ext.width < crop || ext.height < crop) return;
+
+    const int32_t    off_x       = static_cast<int32_t>((ext.width  - crop) / 2);
+    const int32_t    off_y       = static_cast<int32_t>((ext.height - crop) / 2);
+    const uint32_t   pixel_count = crop * crop;
+
+    // Use persistent staging buffers (allocated in initialize_renderer).
+    // No alloc/free per call — avoids the per-frame GPU stall.
+    VkImage img_pt = accumulate_pass_->accumulated_image_handle();
+    VkImage img_ri = restir_di_pass_->output_image_handle();
+
+    one_time_submit([&](VkCommandBuffer cmd)
+    {
+        // Helper lambda — captures nothing from outer compute_mse; all by param.
+        // Barrier: GENERAL -> TRANSFER_SRC
+        auto barrier_to_src = [](VkCommandBuffer c, VkImage img)
+        {
+            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            b.srcStageMask       = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.srcAccessMask      = VK_ACCESS_2_SHADER_WRITE_BIT;
+            b.dstStageMask       = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            b.dstAccessMask      = VK_ACCESS_2_TRANSFER_READ_BIT;
+            b.oldLayout          = VK_IMAGE_LAYOUT_GENERAL;
+            b.newLayout          = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            b.image              = img;
+            b.subresourceRange   = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers    = &b;
+            vkCmdPipelineBarrier2(c, &dep);
+        };
+        auto barrier_to_general = [](VkCommandBuffer c, VkImage img)
+        {
+            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            b.srcStageMask       = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            b.srcAccessMask      = VK_ACCESS_2_TRANSFER_READ_BIT;
+            b.dstStageMask       = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.dstAccessMask      = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            b.oldLayout          = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            b.newLayout          = VK_IMAGE_LAYOUT_GENERAL;
+            b.image              = img;
+            b.subresourceRange   = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers    = &b;
+            vkCmdPipelineBarrier2(c, &dep);
+        };
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset      = {off_x, off_y, 0};
+        region.imageExtent      = {crop, crop, 1};
+
+        barrier_to_src(cmd, img_pt);
+        vkCmdCopyImageToBuffer(cmd, img_pt, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_pt_.handle(), 1, &region);
+        barrier_to_general(cmd, img_pt);
+
+        barrier_to_src(cmd, img_ri);
+        vkCmdCopyImageToBuffer(cmd, img_ri, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_ri_.handle(), 1, &region);
+        barrier_to_general(cmd, img_ri);
+    });
+
+    const float* pt = static_cast<const float*>(mse_staging_pt_.map(device_));
+    const float* ri = static_cast<const float*>(mse_staging_ri_.map(device_));
+
+    double mse_sum = 0.0;
+    for (uint32_t i = 0; i < pixel_count; ++i)
+    {
+        for (int c = 0; c < 3; ++c)
+        {
+            const double d = static_cast<double>(pt[i * 4 + c]) - static_cast<double>(ri[i * 4 + c]);
+            mse_sum += d * d;
+        }
+    }
+    mse_sum /= static_cast<double>(pixel_count) * 3.0;
+
+    mse_staging_pt_.unmap(device_);
+    mse_staging_ri_.unmap(device_);
+
+    mse_latest_ = static_cast<float>(mse_sum);
+    mse_history_[mse_history_pos_ % kMseHistoryLen] = mse_latest_;
+    ++mse_history_pos_;
 }
 
 } // namespace rr::app

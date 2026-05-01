@@ -62,6 +62,51 @@ void PathTracerPass::shutdown(rr::rhi::Device& device)
     initialized_ = false;
 }
 
+bool PathTracerPass::reload_shader(rr::shader::SlangSession& session)
+{
+    if (!initialized_) return false;
+
+    // Step 1: try compile new shader — old shader_ stays intact on failure.
+    rr::shader::ShaderModule new_shader;
+    try
+    {
+        new_shader.compile(session,
+            "assets/shaders/passes/pathtracer_reference/pathtracer.slang",
+            {{"cs_main", rr::shader::ShaderStage::Compute}});
+    }
+    catch (const std::exception& e)
+    {
+        core::log()->error("[PathTracerPass] Shader recompile failed: {}", e.what());
+        return false;
+    }
+    rr::shader::ShaderReflection new_reflection(new_shader.program_layout());
+
+    // Step 2: try create new pipeline using the new shader.
+    rr::rhi::ComputePipeline new_pipeline;
+    rr::rhi::ComputePipelineDesc d{};
+    d.module      = &new_shader;
+    d.reflection  = &new_reflection;
+    d.entry_index = 0;
+    d.registry    = registry_;
+    d.debug_name  = "pathtracer_pipeline";
+    try
+    {
+        new_pipeline.create(*device_, d);
+    }
+    catch (const std::exception& e)
+    {
+        core::log()->error("[PathTracerPass] Pipeline recreate failed: {}", e.what());
+        return false; // old pipeline_ still valid
+    }
+
+    // Step 3: both succeeded — destroy old, swap in new.
+    pipeline_.destroy(*device_);
+    pipeline_.swap(new_pipeline);
+    shader_.swap(new_shader);
+    reflection_ = new_reflection;
+    return true;
+}
+
 void PathTracerPass::create_images(rr::rhi::Device& device,
                                      rr::rhi::BindlessRegistry& registry,
                                      VkExtent2D ext)

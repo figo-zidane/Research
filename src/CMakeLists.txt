@@ -1,9 +1,10 @@
 add_library(core STATIC
   core/Log.cpp
+  core/FileWatcher.cpp
 )
 
 target_include_directories(core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(core PUBLIC fmt::fmt spdlog::spdlog)
+target_link_libraries(core PUBLIC fmt::fmt spdlog::spdlog efsw::efsw)
 
 find_package(volk CONFIG REQUIRED)
 find_package(VulkanMemoryAllocator CONFIG REQUIRED)
@@ -42,10 +43,11 @@ add_library(shader STATIC
   shader/SlangSession.cpp
   shader/ShaderModule.cpp
   shader/ShaderReflection.cpp
+  shader/HotReload.cpp
 )
 
 target_include_directories(shader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(shader PUBLIC core Slang::Slang)
+target_link_libraries(shader PUBLIC core Slang::Slang imgui::imgui)
 
 add_library(scene STATIC
   scene/Scene.cpp
@@ -106,6 +108,13 @@ add_library(tonemap_pass STATIC
 target_include_directories(tonemap_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(tonemap_pass PUBLIC render rhi imgui::imgui)
 
+# ── ReSTIR DI pass ────────────────────────────────────────────────────────────
+add_library(restir_di_pass STATIC
+  passes/restir_di/ReSTIRDIPass.cpp
+)
+target_include_directories(restir_di_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(restir_di_pass PUBLIC render rhi imgui::imgui)
+
 # ── Application / entry point ────────────────────────────────────────────────
 add_library(app STATIC
   app/Application.cpp
@@ -115,6 +124,7 @@ add_library(app STATIC
 target_include_directories(app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(app PUBLIC core render rhi scene shader
   imgui_pass gbuffer_pass pathtracer_pass accumulate_pass tonemap_pass
+  restir_di_pass
   glfw imgui::imgui)
 
 add_executable(research-renderer

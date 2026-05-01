@@ -50,6 +50,60 @@ void TonemapPass::shutdown(rr::rhi::Device& device)
     initialized_ = false;
 }
 
+bool TonemapPass::reload_shader(rr::shader::SlangSession& session)
+{
+    if (!initialized_) return false;
+
+    // Step 1: try compile new shader — old shader_ stays intact on failure.
+    rr::shader::ShaderModule new_shader;
+    try
+    {
+        new_shader.compile(session,
+            "assets/shaders/passes/tonemap/tonemap.slang",
+            {
+                {"vs_main", rr::shader::ShaderStage::Vertex},
+                {"fs_main", rr::shader::ShaderStage::Fragment}
+            });
+    }
+    catch (const std::exception& e)
+    {
+        core::log()->error("[TonemapPass] Shader recompile failed: {}", e.what());
+        return false;
+    }
+    rr::shader::ShaderReflection new_reflection(new_shader.program_layout());
+
+    // Step 2: try create new pipeline using the new shader.
+    rr::rhi::GraphicsPipeline new_pipeline;
+    rr::rhi::GraphicsPipelineDesc desc{};
+    desc.module        = &new_shader;
+    desc.reflection    = &new_reflection;
+    desc.vert_entry    = 0;
+    desc.frag_entry    = 1;
+    desc.registry      = registry_;
+    desc.color_formats = {swapchain_format_};
+    desc.depth_test    = false;
+    desc.depth_write   = false;
+    desc.cull_mode     = VK_CULL_MODE_NONE;
+    desc.topology      = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    desc.debug_name    = "tonemap_pipeline";
+    try
+    {
+        new_pipeline.create(*device_, desc);
+    }
+    catch (const std::exception& e)
+    {
+        core::log()->error("[TonemapPass] Pipeline recreate failed: {}", e.what());
+        return false; // old pipeline_ still valid
+    }
+
+    // Step 3: both succeeded — destroy old, swap in new.
+    pipeline_.destroy(*device_);
+    pipeline_.swap(new_pipeline);
+    shader_.swap(new_shader);
+    reflection_ = new_reflection;
+    return true;
+}
+
 void TonemapPass::create_pipeline(rr::rhi::Device& device,
                                     rr::rhi::BindlessRegistry& registry)
 {

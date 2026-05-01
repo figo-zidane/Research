@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 #include <volk.h>
 
@@ -44,6 +45,9 @@ public:
     void create(Device& device, const ComputePipelineDesc& desc);
     void destroy(Device& device);
 
+    // Swap pipeline handles (both must already be destroyed or not yet created).
+    void swap(ComputePipeline& other) noexcept { std::swap(pipeline_, other.pipeline_); }
+
     [[nodiscard]] VkPipeline       handle()  const noexcept { return pipeline_; }
     [[nodiscard]] bool             is_valid() const noexcept { return pipeline_ != VK_NULL_HANDLE; }
 
@@ -84,6 +88,9 @@ public:
 
     void create(Device& device, const GraphicsPipelineDesc& desc);
     void destroy(Device& device);
+
+    // Swap pipeline handles (both must already be destroyed or not yet created).
+    void swap(GraphicsPipeline& other) noexcept { std::swap(pipeline_, other.pipeline_); }
 
     [[nodiscard]] VkPipeline handle()   const noexcept { return pipeline_; }
     [[nodiscard]] bool       is_valid() const noexcept { return pipeline_ != VK_NULL_HANDLE; }

@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace rr::shader
@@ -31,6 +32,16 @@ public:
     ShaderModule(const ShaderModule&) = delete;
     ShaderModule& operator=(const ShaderModule&) = delete;
     ~ShaderModule();
+
+    // Swap all state (including Slang COM object ownership).
+    void swap(ShaderModule& other) noexcept
+    {
+        std::swap(module_,       other.module_);
+        std::swap(program_,      other.program_);
+        std::swap(layout_,       other.layout_);
+        std::swap(entry_points_, other.entry_points_);
+        std::swap(spv_codes_,    other.spv_codes_);
+    }
 
     // Compile the shader.  Throws on error; on warning the diagnostic is
     // logged at WARN level and compilation proceeds.

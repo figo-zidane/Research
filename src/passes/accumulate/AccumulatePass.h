@@ -28,6 +28,9 @@ public:
 
     void shutdown(rr::rhi::Device& device);
 
+    // Hot-reload: recompile shader and recreate pipeline. Returns true on success.
+    bool reload_shader(rr::shader::SlangSession& session);
+
     [[nodiscard]] const char* name() const override { return "AccumulatePass"; }
     [[nodiscard]] Reflection  reflect() const override;
     void on_resize(VkExtent2D new_extent) override;
