@@ -86,5 +86,11 @@ private:
 
     std::chrono::steady_clock::time_point last_frame_time_{};
     float delta_time_seconds_ = 0.0f;
+
+    // Screenshot
+    bool save_screenshot_  = false;  // request set by EditorUI or auto at 4096 spp
+    bool screenshot_saved_ = false;  // prevents repeated auto-save
+
+    void capture_screenshot();
 };
 }

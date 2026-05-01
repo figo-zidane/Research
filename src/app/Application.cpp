@@ -7,9 +7,15 @@
 #include "passes/pathtracer_reference/PathTracerPass.h"
 #include "passes/tonemap/TonemapPass.h"
 
+// stb_image_write: implementation is in GltfLoader.cpp; only include header here.
+#include <stb_image_write.h>
+
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
+#include <algorithm>  // std::clamp
+#include <cmath>      // std::pow
 
 namespace rr::app
 {
@@ -228,7 +234,7 @@ void Application::render_frame()
 
     // ── ImGui per-frame state machine (before command recording) ──────────
     imgui_pass_->new_frame();
-    editor_ui_.build(renderer_, delta_time_seconds_);
+    editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_);
 
     // ── Camera update ─────────────────────────────────────────────────────
     bool cam_moved = camera_.update(window_, delta_time_seconds_);
@@ -285,6 +291,17 @@ void Application::render_frame()
     // Reset camera_moved flag after executing accumulate pass this frame
     camera_moved_ = false;
 
+    // Sync SPP back from accumulate pass and auto-trigger screenshot at 4096 spp
+    if (accumulate_pass_)
+    {
+        accumulated_spp_ = accumulate_pass_->accumulated_spp;
+        if (accumulated_spp_ >= 4096 && !screenshot_saved_)
+        {
+            save_screenshot_  = true;
+            screenshot_saved_ = true;
+        }
+    }
+
     // Transition the swapchain image to PRESENT_SRC_KHR for presentation.
     rr::rhi::CommandBuffer::image_barrier(
         cmd, swapchain_.image(image_index),
@@ -330,6 +347,13 @@ void Application::render_frame()
     else if (present_result != VK_SUCCESS)
     {
         throw std::runtime_error("vkQueuePresentKHR failed.");
+    }
+
+    // Screenshot capture: triggered by UI button or auto at 4096 spp
+    if (save_screenshot_)
+    {
+        save_screenshot_ = false;
+        capture_screenshot();
     }
 
     (void)frame_.advance();
@@ -409,6 +433,106 @@ void Application::one_time_submit(std::function<void(VkCommandBuffer)> fn)
     vkQueueWaitIdle(device_.graphics_queue());
 
     vkFreeCommandBuffers(device_.device(), command_buffer_.pool(), 1, &tmp_cmd);
+}
+
+void Application::capture_screenshot()
+{
+    if (!accumulate_pass_) return;
+
+    // Wait for all GPU work to complete before reading back.
+    vkDeviceWaitIdle(device_.device());
+
+    const VkExtent2D ext = swapchain_.extent();
+    const uint32_t   pixel_count = ext.width * ext.height;
+    const VkDeviceSize buf_size  = static_cast<VkDeviceSize>(pixel_count) * 4 * sizeof(float);
+
+    // Create a host-readable staging buffer (GPU writes → CPU reads).
+    // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT = 0x00000800
+    rr::rhi::Buffer staging;
+    rr::rhi::BufferDesc bd{};
+    bd.size         = buf_size;
+    bd.usage        = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    bd.memory_usage = 7;            // VMA_MEMORY_USAGE_AUTO
+    bd.alloc_flags  = 0x00000800u;  // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+    staging.create(device_, bd);
+
+    VkImage src = accumulate_pass_->accumulated_image_handle();
+
+    // GPU commands: transition accumulated image to TRANSFER_SRC, copy, transition back.
+    one_time_submit([&](VkCommandBuffer cmd)
+    {
+        // GENERAL → TRANSFER_SRC_OPTIMAL
+        VkImageMemoryBarrier2 b{};
+        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        b.srcAccessMask       = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
+        b.dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        b.dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
+        b.oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
+        b.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = src;
+        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dep{};
+        dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+
+        // Copy image → buffer (RGBA32F tightly packed)
+        VkBufferImageCopy region{};
+        region.bufferOffset      = 0;
+        region.bufferRowLength   = 0;
+        region.bufferImageHeight = 0;
+        region.imageSubresource  = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset       = {0, 0, 0};
+        region.imageExtent       = {ext.width, ext.height, 1};
+        vkCmdCopyImageToBuffer(cmd, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               staging.handle(), 1, &region);
+
+        // TRANSFER_SRC_OPTIMAL → GENERAL (restore for next frame)
+        b.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        b.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+        b.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        b.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        b.newLayout     = VK_IMAGE_LAYOUT_GENERAL;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    });
+
+    // Map buffer and convert RGBA32F → RGBA8 with ACES tone mapping + sRGB gamma.
+    const float* hdr = static_cast<const float*>(staging.map(device_));
+
+    const float exposure = tonemap_pass_ ? tonemap_pass_->exposure : 1.0f;
+
+    std::vector<uint8_t> ldr(static_cast<size_t>(pixel_count) * 4);
+    for (uint32_t i = 0; i < pixel_count; ++i)
+    {
+        for (int c = 0; c < 3; ++c)
+        {
+            float v = hdr[i * 4 + c] * exposure;
+            // ACES filmic approx (Krzysztof Narkowicz)
+            v = (v * (2.51f * v + 0.03f)) / (v * (2.43f * v + 0.59f) + 0.14f);
+            v = std::clamp(v, 0.0f, 1.0f);
+            // sRGB gamma
+            v = std::pow(v, 1.0f / 2.2f);
+            ldr[i * 4 + c] = static_cast<uint8_t>(v * 255.0f + 0.5f);
+        }
+        ldr[i * 4 + 3] = 255u;
+    }
+    staging.unmap(device_);
+    staging.destroy(device_);
+
+    const std::string path = "screenshot_" + std::to_string(accumulated_spp_) + "spp.png";
+    stbi_write_png(path.c_str(),
+                   static_cast<int>(ext.width),
+                   static_cast<int>(ext.height),
+                   4, ldr.data(),
+                   static_cast<int>(ext.width) * 4);
+    rr::core::log()->info("[Screenshot] Saved '{}' ({}x{}, {} spp)",
+                          path, ext.width, ext.height, accumulated_spp_);
 }
 
 } // namespace rr::app

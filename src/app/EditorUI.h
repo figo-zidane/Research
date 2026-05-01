@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace rr::render
 {
 class Renderer;
@@ -13,9 +15,14 @@ class EditorUI
 {
 public:
     // Build the full ImGui UI for this frame:
-    //   - Stats overlay (FPS / frame time)
-    //   - Each pass's renderUI()
-    //   - ImGui Demo Window (Phase 3 validation helper)
-    void build(const rr::render::Renderer& renderer, float delta_time_seconds);
+    //   - Stats overlay (FPS / frame time / SPP)
+    //   - Each pass's renderUI() inside a collapsible panel
+    //   - Screenshot button
+    // accumulated_spp:      current accumulated sample count (for display + auto-trigger)
+    // screenshot_request:   set to true by this function when the user clicks "Save Screenshot"
+    void build(const rr::render::Renderer& renderer,
+               float    delta_time_seconds,
+               uint32_t accumulated_spp,
+               bool&    screenshot_request);
 };
 }

@@ -194,10 +194,12 @@ void cs_main(uint3 dispatch_id : SV_DispatchThreadID)
     // Generate primary ray using inv_proj + inv_view
     float2 ndc = (float2(pixel) + float2(rand_float(seed), rand_float(seed)))
                  / float2(W, H) * 2.0 - 1.0;
-    // Vulkan NDC: y increases downward in clip space. Our inv_proj already handles flip.
+    // Unproject NDC to view space.  After mul(inv_proj, ...) the x/y components give
+    // the correct view-space tangent offsets.  The z must be -1 because the camera
+    // looks in -Z in right-handed view space (Vulkan Y-flip does not change this).
     float4 ray_clip  = float4(ndc.x, ndc.y, 1.0, 1.0);
     float4 ray_view  = mul(cam.inv_proj, ray_clip);
-    ray_view.z = 1.0; ray_view.w = 0.0;
+    ray_view.z = -1.0; ray_view.w = 0.0;
     float4 ray_world = mul(cam.inv_view, ray_view);
     float3 ray_dir   = normalize(ray_world.xyz);
     float3 ray_orig  = cam.position;

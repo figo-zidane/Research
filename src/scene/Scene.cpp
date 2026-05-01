@@ -186,35 +186,35 @@ void Scene::build_cornell_box()
         std::vector<GpuVertex> v; std::vector<uint32_t> i;
         add_quad(v,i, {-1,-1,-1},{1,-1,-1},{1,1,-1},{-1,1,-1}, {0,0,1});
         add_mesh("back_wall", std::move(v), std::move(i), mat_white);
-        add_instance({{}, static_cast<uint32_t>(meshes_.size()-1)});
+        add_instance({glm::mat4(1.0f), static_cast<uint32_t>(meshes_.size()-1)});
     }
     // Floor (y = -1)
     {
         std::vector<GpuVertex> v; std::vector<uint32_t> i;
         add_quad(v,i, {-1,-1,1},{1,-1,1},{1,-1,-1},{-1,-1,-1}, {0,1,0});
         add_mesh("floor", std::move(v), std::move(i), mat_white);
-        add_instance({{}, static_cast<uint32_t>(meshes_.size()-1)});
+        add_instance({glm::mat4(1.0f), static_cast<uint32_t>(meshes_.size()-1)});
     }
     // Ceiling (y = +1)
     {
         std::vector<GpuVertex> v; std::vector<uint32_t> i;
         add_quad(v,i, {-1,1,-1},{1,1,-1},{1,1,1},{-1,1,1}, {0,-1,0});
         add_mesh("ceiling", std::move(v), std::move(i), mat_white);
-        add_instance({{}, static_cast<uint32_t>(meshes_.size()-1)});
+        add_instance({glm::mat4(1.0f), static_cast<uint32_t>(meshes_.size()-1)});
     }
     // Left wall x=-1, red
     {
         std::vector<GpuVertex> v; std::vector<uint32_t> i;
         add_quad(v,i, {-1,-1,-1},{-1,-1,1},{-1,1,1},{-1,1,-1}, {1,0,0});
         add_mesh("left_wall", std::move(v), std::move(i), mat_red);
-        add_instance({{}, static_cast<uint32_t>(meshes_.size()-1)});
+        add_instance({glm::mat4(1.0f), static_cast<uint32_t>(meshes_.size()-1)});
     }
     // Right wall x=+1, green
     {
         std::vector<GpuVertex> v; std::vector<uint32_t> i;
         add_quad(v,i, {1,-1,1},{1,-1,-1},{1,1,-1},{1,1,1}, {-1,0,0});
         add_mesh("right_wall", std::move(v), std::move(i), mat_green);
-        add_instance({{}, static_cast<uint32_t>(meshes_.size()-1)});
+        add_instance({glm::mat4(1.0f), static_cast<uint32_t>(meshes_.size()-1)});
     }
     // Area light on ceiling (emissive quad)
     {
@@ -222,7 +222,7 @@ void Scene::build_cornell_box()
         add_quad(v,i, {-0.25f,0.999f,-0.25f},{0.25f,0.999f,-0.25f},
                       {0.25f,0.999f,0.25f},{-0.25f,0.999f,0.25f}, {0,-1,0});
         add_mesh("ceiling_light", std::move(v), std::move(i), mat_light);
-        add_instance({{}, static_cast<uint32_t>(meshes_.size()-1)});
+        add_instance({glm::mat4(1.0f), static_cast<uint32_t>(meshes_.size()-1)});
     }
     // Short box (0.5x0.5x0.5 at right-ish, rotated 18°)
     {

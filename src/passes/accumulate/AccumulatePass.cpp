@@ -59,7 +59,8 @@ void AccumulatePass::create_images(rr::rhi::Device& device,
     rr::rhi::ImageDesc d{};
     d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
     d.extent     = {ext.width, ext.height, 1};
-    d.usage      = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    d.usage      = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                 | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  // required for screenshot readback
     d.debug_name = "accumulated_image";
     accumulated_img_.create(device, d);
 
