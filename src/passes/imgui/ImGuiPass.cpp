@@ -142,16 +142,14 @@ void ImGuiPass::execute(rr::render::FrameContext& ctx)
         return;
 
     // Open a dynamic rendering scope on the current swapchain image.
-    // In Phase 3, ImGuiPass is the only render pass, so we CLEAR the image to
-    // establish a dark background.  Later (Phase 4+), when previous passes have
-    // already written to the swapchain, change loadOp to LOAD.
+    // TonemapPass has already written the rendered scene to the swapchain;
+    // use LOAD so ImGui is composited on top of the existing contents.
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     color_attachment.imageView   = ctx.swapchain_image_view;
     color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
     color_attachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.clearValue.color = {{0.05f, 0.10f, 0.15f, 1.0f}};
 
     VkRenderingInfo rendering{};
     rendering.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
