@@ -301,8 +301,17 @@ void cs_temporal(uint3 id : SV_DispatchThreadID)
     float contrib  = ph_prev * prev_W * float(prev_M);
 
     curr_wsum += contrib;
-    curr_M    += prev_M;
-    curr_M     = min(curr_M, m_cap);
+    uint new_M = curr_M + prev_M;
+    if (new_M > m_cap)
+    {
+        float scale = float(m_cap) / float(new_M);
+        curr_wsum  *= scale;   // w_sum を M と同じ比率で縮小
+        curr_M      = m_cap;
+    }
+    else
+    {
+        curr_M = new_M;
+    }
 
     uint seed = make_seed(pixel, pc.frame_seed + 1u);
     if (contrib > 0.0 && rand_float(seed) < contrib / curr_wsum)
@@ -314,6 +323,7 @@ void cs_temporal(uint3 id : SV_DispatchThreadID)
     {
         float ph_y = compute_p_hat(curr_sel, hit_pos, normal);
         W_new = (ph_y > 1e-10) ? (curr_wsum / (float(curr_M) * ph_y)) : 0.0;
+        W_new = min(W_new, 1e4);  // 爆発値を安全な上限でキャップ
     }
 
     gStorageImages[pc.reservoir_curr_idx][pixel] =
