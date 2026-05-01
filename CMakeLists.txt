@@ -31,6 +31,7 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(efsw CONFIG REQUIRED)
 
 find_path(SLANG_INCLUDE_DIR
   NAMES slang.h
