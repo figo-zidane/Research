@@ -15,7 +15,9 @@ void EditorUI::build(const rr::render::Renderer& renderer,
                      float        delta_time_seconds,
                      uint32_t     accumulated_spp,
                      bool&        screenshot_request,
-                     bool&        show_restir,
+                     bool&        use_di,
+                     bool&        use_gi,
+                     bool&        use_denoise,
                      bool&        mse_compare,
                      std::string& gltf_path_input,
                      bool&        load_cornell_request,
@@ -89,20 +91,25 @@ void EditorUI::build(const rr::render::Renderer& renderer,
         // ── Display mode ──────────────────────────────────────────────────
         if (ImGui::CollapsingHeader("Display Mode", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            ImGui::RadioButton("PathTracer (accumulated)", reinterpret_cast<int*>(&show_restir), 0);
-            ImGui::RadioButton("ReSTIR DI (1 spp)",        reinterpret_cast<int*>(&show_restir), 1);
+            ImGui::Checkbox("Direct Lighting (ReSTIR DI)", &use_di);
+            ImGui::Checkbox("Indirect Lighting (GI)", &use_gi);
+            ImGui::BeginDisabled();
+            ImGui::Checkbox("Denoise", &use_denoise);
+            ImGui::EndDisabled();
+            use_denoise = false;
+            ImGui::TextDisabled("Denoiser will be wired after Phase F lands.");
             ImGui::Spacing();
             ImGui::Checkbox("Compute both for MSE comparison", &mse_compare);
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Both PathTracer and ReSTIR DI run every frame.\nUse when comparing MSE. Disables GPU optimisation.");
+                ImGui::SetTooltip("PathTracer stays active alongside the enabled realtime passes.\nUse when comparing MSE. Disables GPU optimisation.");
         }
 
         // ── MSE graph ────────────────────────────────────────────────────
         if (mse_history && mse_history_count > 0)
         {
-            if (ImGui::CollapsingHeader("MSE (ReSTIR vs PathTracer)", ImGuiTreeNodeFlags_DefaultOpen))
+            if (ImGui::CollapsingHeader("MSE (Realtime vs PathTracer)", ImGuiTreeNodeFlags_DefaultOpen))
             {
                 if (mse_latest >= 0.0f)
                     ImGui::Text("Latest MSE: %.6f", mse_latest);

@@ -27,6 +27,7 @@ namespace rr::passes::pathtracer   { class PathTracerPass;   }
 namespace rr::passes::accumulate   { class AccumulatePass;   }
 namespace rr::passes::tonemap      { class TonemapPass;       }
 namespace rr::passes::restir_di    { class ReSTIRDIPass;     }
+namespace rr::passes::restir_gi    { class ReSTIRGIPass;     }
 
 namespace rr::app
 {
@@ -58,7 +59,7 @@ private:
     // Screenshot: save accumulated image to PNG.
     void capture_screenshot();
 
-    // MSE: compare ReSTIR DI output vs accumulated PathTracer on CPU.
+    // MSE: compare the active realtime output vs accumulated PathTracer on CPU.
     // Reads back a 64×64 center crop from both images.
     void compute_mse();
 
@@ -94,6 +95,7 @@ private:
     rr::passes::accumulate::AccumulatePass* accumulate_pass_ = nullptr;
     rr::passes::tonemap::TonemapPass*       tonemap_pass_    = nullptr;
     rr::passes::restir_di::ReSTIRDIPass*    restir_di_pass_  = nullptr;
+    rr::passes::restir_gi::ReSTIRGIPass*    restir_gi_pass_  = nullptr;
 
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     std::string  title_   = "Research Renderer";
@@ -111,9 +113,13 @@ private:
     bool     camera_moved_      = false;
     bool     save_screenshot_   = false;
 
-    // ── Display mode (false = PathTracer accumulated, true = ReSTIR DI) ──
-    bool show_restir_      = false;
-    bool prev_show_restir_ = false;
+    // ── Display mode ──────────────────────────────────────────────────────
+    bool use_di_           = false;
+    bool prev_use_di_      = false;
+    bool use_gi_           = false;
+    bool prev_use_gi_      = false;
+    bool use_denoise_      = false;
+    bool prev_use_denoise_ = false;
     bool mse_compare_      = false;
 
     // ── Scene state ────────────────────────────────────────────────────

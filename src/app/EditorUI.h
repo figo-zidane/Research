@@ -23,7 +23,9 @@ public:
     // Build the full ImGui UI for this frame.
     //   accumulated_spp      : current accumulated sample count
     //   screenshot_request   : set to true when the user clicks "Save Screenshot"
-    //   show_restir          : toggle between PathTracer (false) and ReSTIR DI (true)
+    //   use_di               : include direct-lighting realtime pass in the output
+    //   use_gi               : include indirect-lighting GI pass in the output
+    //   use_denoise          : reserved for a future denoiser pass
     //   hot_reload           : pointer to the HotReload object for status display
     //   mse_history          : circular buffer of MSE values (may be nullptr)
     //   mse_history_count    : number of valid entries in mse_history
@@ -40,7 +42,9 @@ public:
                float                       delta_time_seconds,
                uint32_t                    accumulated_spp,
                bool&                       screenshot_request,
-               bool&                       show_restir,
+               bool&                       use_di,
+               bool&                       use_gi,
+               bool&                       use_denoise,
                bool&                       mse_compare,
                std::string&                gltf_path_input,
                bool&                       load_cornell_request,

@@ -6,6 +6,7 @@
 #include "passes/imgui/ImGuiPass.h"
 #include "passes/pathtracer_reference/PathTracerPass.h"
 #include "passes/restir_di/ReSTIRDIPass.h"
+#include "passes/restir_gi/ReSTIRGIPass.h"
 #include "passes/tonemap/TonemapPass.h"
 #include "scene/GltfLoader.h"
 
@@ -57,6 +58,7 @@ void Application::shutdown()
     if (accumulate_pass_) { accumulate_pass_->shutdown(device_); accumulate_pass_ = nullptr; }
     if (tonemap_pass_)    { tonemap_pass_->shutdown(device_);    tonemap_pass_    = nullptr; }
     if (restir_di_pass_)  { restir_di_pass_->shutdown(device_);  restir_di_pass_  = nullptr; }
+    if (restir_gi_pass_)  { restir_gi_pass_->shutdown(device_);  restir_gi_pass_  = nullptr; }
 
     hot_reload_.shutdown();
 
@@ -209,6 +211,14 @@ void Application::initialize_renderer()
         gbuffer_pass_->position_storage_idx, gbuffer_pass_->position_image_handle(),
         gbuffer_pass_->normal_storage_idx,   gbuffer_pass_->normal_image_handle());
 
+    restir_gi_pass_ = renderer_.add_pass<rr::passes::restir_gi::ReSTIRGIPass>();
+    restir_gi_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+    restir_gi_pass_->set_inputs(
+        gbuffer_pass_->position_storage_idx,
+        gbuffer_pass_->normal_storage_idx,
+        restir_di_pass_->output_texture_idx,
+        restir_di_pass_->output_image_handle());
+
     tonemap_pass_ = renderer_.add_pass<rr::passes::tonemap::TonemapPass>();
     tonemap_pass_->initialize(device_, slang_session_, bindless_registry_, swapchain_.image_format());
     tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
@@ -263,6 +273,8 @@ void Application::initialize_renderer()
         // ReSTIR DI pass: all owned storage images must be GENERAL before first frame.
         if (restir_di_pass_)
             restir_di_pass_->pre_transition_to_general(cmd);
+        if (restir_gi_pass_)
+            restir_gi_pass_->pre_transition_to_general(cmd);
     });
 
     // Hot reload — watch shaders directory
@@ -275,6 +287,8 @@ void Application::initialize_renderer()
         [this]() { return tonemap_pass_->reload_shader(slang_session_); });
     hot_reload_.register_shader("assets/shaders/passes/restir_di/restir_di.slang",
         [this]() { return restir_di_pass_->reload_shader(slang_session_); });
+    hot_reload_.register_shader("assets/shaders/passes/restir_gi/restir_gi.slang",
+        [this]() { return restir_gi_pass_->reload_shader(slang_session_); });
 }
 
 void Application::render_frame()
@@ -323,7 +337,7 @@ void Application::render_frame()
                                     ? (mse_history_pos_ % kMseHistoryLen)
                                     : 0u;
     editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_,
-                     show_restir_, mse_compare_,
+                     use_di_, use_gi_, use_denoise_, mse_compare_,
                      gltf_path_input_, load_cornell_request_, load_gltf_request_,
                      current_scene_name_,
                      &hot_reload_,
@@ -343,25 +357,33 @@ void Application::render_frame()
     }
 
     // ── Display mode switch detection ─────────────────────────────────────
-    if (show_restir_ != prev_show_restir_)
+    if (use_di_ != prev_use_di_ || use_gi_ != prev_use_gi_ || use_denoise_ != prev_use_denoise_)
     {
         accumulated_spp_ = 0;
         camera_moved_    = true;
         if (restir_di_pass_) restir_di_pass_->reset_history();
-        prev_show_restir_ = show_restir_;
+        if (restir_gi_pass_) restir_gi_pass_->reset_history();
+        prev_use_di_      = use_di_;
+        prev_use_gi_      = use_gi_;
+        prev_use_denoise_ = use_denoise_;
     }
     // ── Pass enable/disable based on display mode ─────────────────────────
+    const bool use_realtime = use_di_ || use_gi_ || use_denoise_;
+    if (restir_gi_pass_)
+        restir_gi_pass_->include_direct_lighting = use_di_;
     if (!mse_compare_)
     {
-        if (accumulate_pass_)  accumulate_pass_->set_enabled(!show_restir_);
-        if (pathtracer_pass_)  pathtracer_pass_->set_enabled(!show_restir_);
-        if (restir_di_pass_)   restir_di_pass_->set_enabled(show_restir_);
+        if (accumulate_pass_)  accumulate_pass_->set_enabled(!use_realtime);
+        if (pathtracer_pass_)  pathtracer_pass_->set_enabled(!use_realtime);
+        if (restir_di_pass_)   restir_di_pass_->set_enabled(use_di_);
+        if (restir_gi_pass_)   restir_gi_pass_->set_enabled(use_gi_);
     }
     else
     {
         if (accumulate_pass_)  accumulate_pass_->set_enabled(true);
         if (pathtracer_pass_)  pathtracer_pass_->set_enabled(true);
-        if (restir_di_pass_)   restir_di_pass_->set_enabled(true);
+        if (restir_di_pass_)   restir_di_pass_->set_enabled(use_di_);
+        if (restir_gi_pass_)   restir_gi_pass_->set_enabled(use_gi_);
     }
 
     // ── Hot reload ────────────────────────────────────────────────────────
@@ -369,6 +391,8 @@ void Application::render_frame()
     {
         accumulated_spp_ = 0;
         camera_moved_    = true;
+        if (restir_di_pass_) restir_di_pass_->reset_history();
+        if (restir_gi_pass_) restir_gi_pass_->reset_history();
     }
 
     // ── Camera update ─────────────────────────────────────────────────────
@@ -418,7 +442,12 @@ void Application::render_frame()
     frame_context.image_index          = image_index;
     frame_context.frame_index          = frame_index;
     frame_context.delta_time_seconds   = delta_time_seconds_;
-    if (show_restir_ && restir_di_pass_)
+    if (use_gi_ && restir_gi_pass_)
+    {
+        tonemap_pass_->accumulated_texture_idx = restir_gi_pass_->output_texture_idx;
+        frame_context.accumulated_image        = restir_gi_pass_->output_image_handle();
+    }
+    else if (use_di_ && restir_di_pass_)
     {
         tonemap_pass_->accumulated_texture_idx = restir_di_pass_->output_texture_idx;
         frame_context.accumulated_image        = restir_di_pass_->output_image_handle();
@@ -436,11 +465,11 @@ void Application::render_frame()
         accumulated_spp_ = accumulate_pass_->accumulated_spp;
 
     // Reset tonemap source back to accumulate pass for next frame
-    if (!show_restir_ && tonemap_pass_ && accumulate_pass_)
+    if (tonemap_pass_ && accumulate_pass_)
         tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
 
     // Periodic MSE computation
-    if (mse_auto_update_ && restir_di_pass_ && ++mse_frame_counter_ % kMseInterval == 0)
+    if (mse_auto_update_ && (use_di_ || use_gi_) && ++mse_frame_counter_ % kMseInterval == 0)
         compute_mse();
 
     // Transition the swapchain image to PRESENT_SRC_KHR for presentation.
@@ -583,6 +612,7 @@ void Application::reload_scene_cornell()
     camera_moved_         = true;
     current_scene_name_   = "Cornell Box";
     if (restir_di_pass_) restir_di_pass_->reset_history();
+    if (restir_gi_pass_) restir_gi_pass_->reset_history();
     rr::core::log()->info("[Scene] Reloaded Cornell Box");
 }
 
@@ -612,6 +642,7 @@ void Application::reload_scene_gltf(const std::string& path)
     accumulated_spp_  = 0;
     camera_moved_     = true;
     if (restir_di_pass_) restir_di_pass_->reset_history();
+    if (restir_gi_pass_) restir_gi_pass_->reset_history();
     rr::core::log()->info("[Scene] Loaded '{}'", current_scene_name_);
 }
 
@@ -750,7 +781,14 @@ void Application::capture_screenshot()
 
 void Application::compute_mse()
 {
-    if (!restir_di_pass_ || !accumulate_pass_) return;
+    if (!accumulate_pass_) return;
+
+    VkImage img_ri = VK_NULL_HANDLE;
+    if (use_gi_ && restir_gi_pass_)
+        img_ri = restir_gi_pass_->output_image_handle();
+    else if (use_di_ && restir_di_pass_)
+        img_ri = restir_di_pass_->output_image_handle();
+    if (img_ri == VK_NULL_HANDLE) return;
 
     const VkExtent2D ext = swapchain_.extent();
     const uint32_t   crop = kMseCropSize;
@@ -763,7 +801,6 @@ void Application::compute_mse()
     // Use persistent staging buffers (allocated in initialize_renderer).
     // No alloc/free per call — avoids the per-frame GPU stall.
     VkImage img_pt = accumulate_pass_->accumulated_image_handle();
-    VkImage img_ri = restir_di_pass_->output_image_handle();
 
     one_time_submit([&](VkCommandBuffer cmd)
     {
