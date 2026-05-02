@@ -20,7 +20,7 @@ void RenderGraph::execute(FrameContext& frame_context)
     }
 }
 
-void RenderGraph::on_resize(VkExtent2D extent)
+void RenderGraph::on_resize(rr::rhi::Extent2D extent)
 {
     for (const auto& pass : passes_)
     {

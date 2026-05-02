@@ -109,7 +109,7 @@ ReSTIRGIPass::~ReSTIRGIPass() = default;
 void ReSTIRGIPass::initialize(rr::rhi::Device& device,
                               rr::shader::SlangSession& session,
                               rr::rhi::BindlessRegistry& registry,
-                              VkExtent2D extent)
+                              rr::rhi::Extent2D extent)
 {
     device_   = &device;
     registry_ = &registry;
@@ -216,7 +216,7 @@ bool ReSTIRGIPass::reload_shader(rr::shader::SlangSession& session)
 
 void ReSTIRGIPass::create_images(rr::rhi::Device& device,
                                  rr::rhi::BindlessRegistry& registry,
-                                 VkExtent2D ext)
+                                 rr::rhi::Extent2D ext)
 {
     auto make_storage = [&](rr::rhi::Image& image, const char* name) -> uint32_t
     {
@@ -311,11 +311,11 @@ rr::render::RenderPass::Reflection ReSTIRGIPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"restir_gi_output", ResourceDesc::Kind::Texture,
-                         VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
+                         static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
     return r;
 }
 
-void ReSTIRGIPass::on_resize(VkExtent2D new_extent)
+void ReSTIRGIPass::on_resize(rr::rhi::Extent2D new_extent)
 {
     if (!initialized_) return;
     extent_ = new_extent;
@@ -339,13 +339,14 @@ void ReSTIRGIPass::render_ui()
                 output_storage_idx, output_texture_idx);
 }
 
-VkImage ReSTIRGIPass::output_image_handle() const
+rr::rhi::ImageHandle ReSTIRGIPass::output_image_handle() const
 {
-    return output_img_.handle();
+    return rr::rhi::to_handle(output_img_.handle());
 }
 
-void ReSTIRGIPass::pre_transition_to_general(VkCommandBuffer cmd)
+void ReSTIRGIPass::pre_transition_to_general(rr::rhi::CommandRecorder recorder)
 {
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
     // Images that will be cleared (reservoir + history; NOT output_img_).
     VkImage clearable[] = {
         reservoir_pos_[0].handle(),
@@ -465,8 +466,9 @@ void ReSTIRGIPass::execute(rr::render::FrameContext& fc)
     const auto& scene = *fc.scene;
     if (!scene.is_uploaded()) return;
 
-    VkCommandBuffer cmd     = fc.command_buffer;
+    VkCommandBuffer cmd     = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
     const auto&     handles = scene.gpu_handles();
+    const VkImage direct_input_image = rr::rhi::from_handle<VkImage>(direct_input_image_);
 
     const uint32_t curr = reservoir_flip_;
     const uint32_t prev = 1u - reservoir_flip_;
@@ -664,9 +666,9 @@ void ReSTIRGIPass::execute(rr::render::FrameContext& fc)
                               VK_IMAGE_LAYOUT_GENERAL);
     }
 
-    if (include_direct_lighting && direct_input_image_ != VK_NULL_HANDLE)
+    if (include_direct_lighting && direct_input_image_ != 0)
     {
-        VkImage direct_imgs[] = {direct_input_image_};
+        VkImage direct_imgs[] = {direct_input_image};
         image_barrier_compute(cmd,
                               direct_imgs,
                               1,

@@ -9,6 +9,7 @@
 
 #include <imgui.h>
 #include <stdexcept>
+#include <vector>
 
 namespace rr::passes::restir_di
 {
@@ -43,6 +44,38 @@ struct ReSTIRDIPushConstants
 };
 static_assert(sizeof(ReSTIRDIPushConstants) == 96);
 
+void image_barrier_compute(VkCommandBuffer cmd,
+                           const VkImage*  images,
+                           uint32_t        count,
+                           VkAccessFlags2  src_access,
+                           VkAccessFlags2  dst_access,
+                           VkImageLayout   old_layout)
+{
+    std::vector<VkImageMemoryBarrier2> barriers(count);
+    for (uint32_t i = 0; i < count; ++i)
+    {
+        auto& b = barriers[i];
+        b = {};
+        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.srcAccessMask       = src_access;
+        b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask       = dst_access;
+        b.oldLayout           = old_layout;
+        b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = images[i];
+        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
+                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+    }
+    VkDependencyInfo dep{};
+    dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = count;
+    dep.pImageMemoryBarriers    = barriers.data();
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 ReSTIRDIPass::~ReSTIRDIPass() = default;
@@ -50,7 +83,7 @@ ReSTIRDIPass::~ReSTIRDIPass() = default;
 void ReSTIRDIPass::initialize(rr::rhi::Device& device,
                                rr::shader::SlangSession& session,
                                rr::rhi::BindlessRegistry& registry,
-                               VkExtent2D extent)
+                               rr::rhi::Extent2D extent)
 {
     device_   = &device;
     registry_ = &registry;
@@ -153,7 +186,7 @@ bool ReSTIRDIPass::reload_shader(rr::shader::SlangSession& session)
 
 void ReSTIRDIPass::create_images(rr::rhi::Device& device,
                                    rr::rhi::BindlessRegistry& registry,
-                                   VkExtent2D ext)
+                                   rr::rhi::Extent2D ext)
 {
     auto make_storage = [&](rr::rhi::Image& img, const char* name) -> uint32_t
     {
@@ -198,13 +231,14 @@ void ReSTIRDIPass::destroy_images(rr::rhi::Device& device)
     output_img_.destroy(device);
 }
 
-VkImage ReSTIRDIPass::output_image_handle() const
+rr::rhi::ImageHandle ReSTIRDIPass::output_image_handle() const
 {
-    return output_img_.handle();
+    return rr::rhi::to_handle(output_img_.handle());
 }
 
-void ReSTIRDIPass::pre_transition_to_general(VkCommandBuffer cmd)
+void ReSTIRDIPass::pre_transition_to_general(rr::rhi::CommandRecorder recorder)
 {
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
     VkImage imgs[] = {
         reservoir_[0].handle(),
         reservoir_[1].handle(),
@@ -240,11 +274,11 @@ rr::render::RenderPass::Reflection ReSTIRDIPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"restir_di_output", ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
+                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
     return r;
 }
 
-void ReSTIRDIPass::on_resize(VkExtent2D new_extent)
+void ReSTIRDIPass::on_resize(rr::rhi::Extent2D new_extent)
 {
     if (!initialized_) return;
     extent_ = new_extent;
@@ -269,40 +303,6 @@ void ReSTIRDIPass::render_ui()
                 output_storage_idx, output_texture_idx);
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-void ReSTIRDIPass::image_barrier_compute(VkCommandBuffer cmd,
-                                          const VkImage*  images,
-                                          uint32_t        count,
-                                          VkAccessFlags2  src_access,
-                                          VkAccessFlags2  dst_access,
-                                          VkImageLayout   old_layout)
-{
-    std::vector<VkImageMemoryBarrier2> barriers(count);
-    for (uint32_t i = 0; i < count; ++i)
-    {
-        auto& b = barriers[i];
-        b = {};
-        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.srcAccessMask       = src_access;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask       = dst_access;
-        b.oldLayout           = old_layout;
-        b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = images[i];
-        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-    }
-    VkDependencyInfo dep{};
-    dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = count;
-    dep.pImageMemoryBarriers    = barriers.data();
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
 // ── Execute ───────────────────────────────────────────────────────────────────
 
 void ReSTIRDIPass::execute(rr::render::FrameContext& fc)
@@ -315,8 +315,10 @@ void ReSTIRDIPass::execute(rr::render::FrameContext& fc)
     const auto& scene = *fc.scene;
     if (!scene.is_uploaded()) return;
 
-    VkCommandBuffer cmd     = fc.command_buffer;
+    VkCommandBuffer cmd     = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
     const auto&     handles = scene.gpu_handles();
+    const VkImage gbuf_pos_image = rr::rhi::from_handle<VkImage>(gbuf_pos_image_);
+    const VkImage gbuf_norm_image = rr::rhi::from_handle<VkImage>(gbuf_norm_image_);
 
     // Determine current / previous reservoir image indices for this frame
     uint32_t curr_res = reservoir_idx_[reservoir_flip_];
@@ -363,7 +365,7 @@ void ReSTIRDIPass::execute(rr::render::FrameContext& fc)
     // overwrites them.  Transition from GENERAL (post-GBufferPass) → GENERAL,
     // discarding old content (oldLayout = UNDEFINED for discard-transition).
     {
-        VkImage gbuf_imgs[] = {gbuf_pos_image_, gbuf_norm_image_};
+        VkImage gbuf_imgs[] = {gbuf_pos_image, gbuf_norm_image};
         image_barrier_compute(cmd, gbuf_imgs, 2, 0, VK_ACCESS_2_SHADER_WRITE_BIT,
                                VK_IMAGE_LAYOUT_GENERAL);
     }
@@ -381,7 +383,7 @@ void ReSTIRDIPass::execute(rr::render::FrameContext& fc)
 
     // Barrier: G-buffer and reservoir_curr written → readable by temporal/spatial passes.
     {
-        VkImage imgs[] = {gbuf_pos_image_, gbuf_norm_image_,
+        VkImage imgs[] = {gbuf_pos_image, gbuf_norm_image,
                           reservoir_[reservoir_flip_].handle()};
         image_barrier_compute(cmd, imgs, 3,
                                VK_ACCESS_2_SHADER_WRITE_BIT,

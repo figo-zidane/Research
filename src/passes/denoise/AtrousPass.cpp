@@ -33,6 +33,39 @@ struct AtrousPushConstants
 
 static_assert(sizeof(AtrousPushConstants) == 48);
 
+void image_barrier_compute(VkCommandBuffer cmd,
+                           const VkImage* images,
+                           uint32_t count,
+                           VkAccessFlags2 src_access,
+                           VkAccessFlags2 dst_access,
+                           VkImageLayout old_layout)
+{
+    std::vector<VkImageMemoryBarrier2> barriers(count);
+    for (uint32_t index = 0; index < count; ++index)
+    {
+        auto& barrier = barriers[index];
+        barrier = {};
+        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        barrier.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.srcAccessMask       = src_access;
+        barrier.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        barrier.dstAccessMask       = dst_access;
+        barrier.oldLayout           = old_layout;
+        barrier.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image               = images[index];
+        barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
+                                       VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+    }
+
+    VkDependencyInfo dep{};
+    dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = count;
+    dep.pImageMemoryBarriers    = barriers.data();
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
 } // namespace
 
 AtrousPass::~AtrousPass() = default;
@@ -40,7 +73,7 @@ AtrousPass::~AtrousPass() = default;
 void AtrousPass::initialize(rr::rhi::Device& device,
                             rr::shader::SlangSession& session,
                             rr::rhi::BindlessRegistry& registry,
-                            VkExtent2D extent)
+                            rr::rhi::Extent2D extent)
 {
     device_   = &device;
     registry_ = &registry;
@@ -111,7 +144,7 @@ bool AtrousPass::reload_shader(rr::shader::SlangSession& session)
 
 void AtrousPass::create_images(rr::rhi::Device& device,
                                rr::rhi::BindlessRegistry& registry,
-                               VkExtent2D extent)
+                               rr::rhi::Extent2D extent)
 {
     for (size_t index = 0; index < ping_images_.size(); ++index)
     {
@@ -152,8 +185,9 @@ void AtrousPass::create_pipeline(rr::rhi::Device& device,
     pipeline_.create(device, desc);
 }
 
-void AtrousPass::pre_transition_to_general(VkCommandBuffer cmd)
+void AtrousPass::pre_transition_to_general(rr::rhi::CommandRecorder recorder)
 {
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
     const VkImage images[] = {
         ping_images_[0].handle(),
         ping_images_[1].handle(),
@@ -171,10 +205,10 @@ uint32_t AtrousPass::output_texture_idx() const
     return texture_indices_[output_slot];
 }
 
-VkImage AtrousPass::output_image_handle() const
+rr::rhi::ImageHandle AtrousPass::output_image_handle() const
 {
     const uint32_t output_slot = (std::max(1u, iterations) - 1u) & 1u;
-    return ping_images_[output_slot].handle();
+    return rr::rhi::to_handle(ping_images_[output_slot].handle());
 }
 
 rr::render::RenderPass::Reflection AtrousPass::reflect() const
@@ -183,12 +217,12 @@ rr::render::RenderPass::Reflection AtrousPass::reflect() const
     reflection.outputs.push_back({
         "atrous_output",
         ResourceDesc::Kind::Texture,
-        VK_FORMAT_R32G32B32A32_SFLOAT,
+        static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT),
         extent_});
     return reflection;
 }
 
-void AtrousPass::on_resize(VkExtent2D new_extent)
+void AtrousPass::on_resize(rr::rhi::Extent2D new_extent)
 {
     if (!initialized_) return;
     extent_ = new_extent;
@@ -206,46 +240,13 @@ void AtrousPass::render_ui()
     ImGui::Text("  output gTextures[%u]", output_texture_idx());
 }
 
-void AtrousPass::image_barrier_compute(VkCommandBuffer cmd,
-                                       const VkImage* images,
-                                       uint32_t count,
-                                       VkAccessFlags2 src_access,
-                                       VkAccessFlags2 dst_access,
-                                       VkImageLayout old_layout) const
-{
-    std::vector<VkImageMemoryBarrier2> barriers(count);
-    for (uint32_t index = 0; index < count; ++index)
-    {
-        auto& barrier = barriers[index];
-        barrier = {};
-        barrier.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        barrier.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.srcAccessMask       = src_access;
-        barrier.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.dstAccessMask       = dst_access;
-        barrier.oldLayout           = old_layout;
-        barrier.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image               = images[index];
-        barrier.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                       VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-    }
-
-    VkDependencyInfo dep{};
-    dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = count;
-    dep.pImageMemoryBarriers    = barriers.data();
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
 void AtrousPass::execute(rr::render::FrameContext& fc)
 {
     if (!initialized_ || !pipeline_.is_valid()) return;
-    if (input_texture_idx_ == UINT32_MAX || input_image_ == VK_NULL_HANDLE) return;
+    if (input_texture_idx_ == UINT32_MAX || input_image_ == 0) return;
     if (gbuf_pos_idx_ == UINT32_MAX || gbuf_norm_idx_ == UINT32_MAX) return;
 
-    VkCommandBuffer cmd = fc.command_buffer;
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
 
     if (first_execute_)
     {
@@ -263,7 +264,7 @@ void AtrousPass::execute(rr::render::FrameContext& fc)
 
     const uint32_t clamped_iterations = std::clamp(iterations, 1u, 7u);
     uint32_t read_texture_idx = input_texture_idx_;
-    VkImage  read_image       = input_image_;
+    VkImage  read_image       = rr::rhi::from_handle<VkImage>(input_image_);
 
     for (uint32_t iteration = 0; iteration < clamped_iterations; ++iteration)
     {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/RenderPass.h"
+#include "rhi/CommandRecorder.h"
 #include "rhi/Image.h"
 #include "rhi/Pipeline.h"
 #include "shader/ShaderModule.h"
@@ -30,7 +31,7 @@ public:
     void initialize(rr::rhi::Device&           device,
                     rr::shader::SlangSession&   session,
                     rr::rhi::BindlessRegistry&  registry,
-                    VkExtent2D                  extent);
+                    rr::rhi::Extent2D           extent);
 
     void shutdown(rr::rhi::Device& device);
 
@@ -42,7 +43,7 @@ public:
 
     [[nodiscard]] const char* name() const override { return "ReSTIRDIPass"; }
     [[nodiscard]] Reflection  reflect() const override;
-    void on_resize(VkExtent2D new_extent) override;
+    void on_resize(rr::rhi::Extent2D new_extent) override;
     void render_ui() override;
     void execute(rr::render::FrameContext& fc) override;
 
@@ -53,14 +54,14 @@ public:
     // gTextures[] index (SHADER_READ_ONLY_OPTIMAL) for TonemapPass to sample.
     uint32_t output_texture_idx = UINT32_MAX;
 
-    // Returns the VkImage handle of the output image (used for FrameContext
+    // Returns the output image handle (used for FrameContext
     // accumulated_image barrier in TonemapPass when in ReSTIR DI mode).
-    [[nodiscard]] VkImage output_image_handle() const;
+    [[nodiscard]] rr::rhi::ImageHandle output_image_handle() const;
 
     // Set G-buffer image handles and bindless indices produced by GBufferPass.
     // Must be called before the first execute().
-    void set_gbuffer_indices(uint32_t pos_idx, VkImage pos_image,
-                             uint32_t norm_idx, VkImage norm_image)
+    void set_gbuffer_indices(uint32_t pos_idx, rr::rhi::ImageHandle pos_image,
+                             uint32_t norm_idx, rr::rhi::ImageHandle norm_image)
     {
         gbuf_pos_idx_    = pos_idx;
         gbuf_pos_image_  = pos_image;
@@ -72,7 +73,7 @@ public:
     // Call once inside a one_time_submit after initialize() to satisfy the
     // Vulkan validation requirement that registered storage-image descriptors
     // are in the declared layout before the first frame executes.
-    void pre_transition_to_general(VkCommandBuffer cmd);
+    void pre_transition_to_general(rr::rhi::CommandRecorder recorder);
 
     // Reset temporal history (call on mode switch to avoid stale reservoirs).
     void reset_history()
@@ -93,29 +94,20 @@ public:
 private:
     void create_images(rr::rhi::Device& device,
                        rr::rhi::BindlessRegistry& registry,
-                       VkExtent2D extent);
+                       rr::rhi::Extent2D extent);
     void destroy_images(rr::rhi::Device& device);
 
     void create_pipelines(rr::rhi::Device& device,
                           rr::rhi::BindlessRegistry& registry);
 
-    // Issue a compute-to-compute image memory barrier for a set of images.
-    // old_layout defaults to UNDEFINED (discard-and-transition). Pass GENERAL
-    // for between-dispatch barriers that must preserve image contents.
-    static void image_barrier_compute(VkCommandBuffer cmd,
-                                      const VkImage* images, uint32_t count,
-                                      VkAccessFlags2 src_access,
-                                      VkAccessFlags2 dst_access,
-                                      VkImageLayout  old_layout = VK_IMAGE_LAYOUT_UNDEFINED);
-
     rr::rhi::Device*           device_   = nullptr;
     rr::rhi::BindlessRegistry* registry_ = nullptr;
 
-    // G-buffer bindless indices and VkImage handles (set via set_gbuffer_indices()).
+    // G-buffer bindless indices and image handles (set via set_gbuffer_indices()).
     uint32_t gbuf_pos_idx_    = UINT32_MAX;
     uint32_t gbuf_norm_idx_   = UINT32_MAX;
-    VkImage  gbuf_pos_image_  = VK_NULL_HANDLE;
-    VkImage  gbuf_norm_image_ = VK_NULL_HANDLE;
+    rr::rhi::ImageHandle gbuf_pos_image_  = 0;
+    rr::rhi::ImageHandle gbuf_norm_image_ = 0;
 
     // Reservoir ping-pong (A and B alternate as current/previous each frame)
     rr::rhi::Image reservoir_[2];
@@ -125,7 +117,7 @@ private:
     // Output radiance
     rr::rhi::Image output_img_;
 
-    VkExtent2D extent_{};
+    rr::rhi::Extent2D extent_{};
 
     rr::shader::ShaderModule     shader_;
     rr::shader::ShaderReflection reflection_;

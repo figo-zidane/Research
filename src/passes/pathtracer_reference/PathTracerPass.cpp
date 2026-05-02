@@ -36,7 +36,7 @@ PathTracerPass::~PathTracerPass() = default;
 void PathTracerPass::initialize(rr::rhi::Device& device,
                                   rr::shader::SlangSession& session,
                                   rr::rhi::BindlessRegistry& registry,
-                                  VkExtent2D extent)
+                                  rr::rhi::Extent2D extent)
 {
     device_   = &device;
     registry_ = &registry;
@@ -109,7 +109,7 @@ bool PathTracerPass::reload_shader(rr::shader::SlangSession& session)
 
 void PathTracerPass::create_images(rr::rhi::Device& device,
                                      rr::rhi::BindlessRegistry& registry,
-                                     VkExtent2D ext)
+                                     rr::rhi::Extent2D ext)
 {
     rr::rhi::ImageDesc d{};
     d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
@@ -144,7 +144,7 @@ void PathTracerPass::create_pipeline(rr::rhi::Device& device,
     pipeline_.create(device, desc);
 }
 
-void PathTracerPass::on_resize(VkExtent2D new_extent)
+void PathTracerPass::on_resize(rr::rhi::Extent2D new_extent)
 {
     if (!initialized_) return;
     extent_ = new_extent;
@@ -156,7 +156,7 @@ rr::render::RenderPass::Reflection PathTracerPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"radiance_image", ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
+                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
     return r;
 }
 
@@ -173,7 +173,7 @@ void PathTracerPass::execute(rr::render::FrameContext& fc)
     if (!scene.is_uploaded()) return;
     if (!pipeline_.is_valid()) return;
 
-    VkCommandBuffer cmd = fc.command_buffer;
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
     const auto& handles = scene.gpu_handles();
 
     // Transition radiance image to GENERAL

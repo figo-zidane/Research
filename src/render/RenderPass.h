@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/FrameContext.h"
+#include "rhi/Types.h"
 
 #include <string>
 #include <vector>
@@ -20,8 +21,8 @@ public:
 
         std::string name;
         Kind kind = Kind::Texture;
-        VkFormat format = VK_FORMAT_UNDEFINED;
-        VkExtent2D extent{};
+        rr::rhi::Format format = rr::rhi::Format::Undefined;
+        rr::rhi::Extent2D extent{};
         bool persistent = false;
     };
 
@@ -36,7 +37,7 @@ public:
     [[nodiscard]] virtual const char* name() const = 0;
     [[nodiscard]] virtual Reflection reflect() const = 0;
     virtual void render_ui() {}
-    virtual void on_resize(VkExtent2D /*new_extent*/) {}
+    virtual void on_resize(rr::rhi::Extent2D /*new_extent*/) {}
     virtual void execute(FrameContext& frame_context) = 0;
 
     void set_enabled(bool v)          { enabled_ = v; }

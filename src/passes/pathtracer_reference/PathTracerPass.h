@@ -28,14 +28,14 @@ public:
     void initialize(rr::rhi::Device&           device,
                     rr::shader::SlangSession&   session,
                     rr::rhi::BindlessRegistry&  registry,
-                    VkExtent2D                  extent);
+                    rr::rhi::Extent2D           extent);
 
     void shutdown(rr::rhi::Device& device);
     // Hot-reload: recompile shader and recreate pipeline. Returns true on success.
     bool reload_shader(rr::shader::SlangSession& session);
     [[nodiscard]] const char* name() const override { return "PathTracerPass"; }
     [[nodiscard]] Reflection  reflect() const override;
-    void on_resize(VkExtent2D new_extent) override;
+    void on_resize(rr::rhi::Extent2D new_extent) override;
     void render_ui() override;
     void execute(rr::render::FrameContext& fc) override;
 
@@ -47,7 +47,7 @@ public:
 
 private:
     void create_images(rr::rhi::Device& device, rr::rhi::BindlessRegistry& registry,
-                        VkExtent2D extent);
+                        rr::rhi::Extent2D extent);
     void destroy_images(rr::rhi::Device& device);
     void create_pipeline(rr::rhi::Device& device, rr::rhi::BindlessRegistry& registry);
 
@@ -55,7 +55,7 @@ private:
     rr::rhi::BindlessRegistry* registry_ = nullptr;
 
     rr::rhi::Image             radiance_img_;  // RGBA32F
-    VkExtent2D                 extent_{};
+    rr::rhi::Extent2D          extent_{};
 
     rr::shader::ShaderModule     shader_;
     rr::shader::ShaderReflection reflection_;

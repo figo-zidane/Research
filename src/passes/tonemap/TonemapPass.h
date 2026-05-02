@@ -20,7 +20,7 @@ public:
     void initialize(rr::rhi::Device&           device,
                     rr::shader::SlangSession&   session,
                     rr::rhi::BindlessRegistry&  registry,
-                    VkFormat                    swapchain_format);
+                    rr::rhi::Format             swapchain_format);
 
     void shutdown(rr::rhi::Device& device);
 
@@ -29,7 +29,7 @@ public:
 
     [[nodiscard]] const char* name() const override { return "TonemapPass"; }
     [[nodiscard]] Reflection  reflect() const override;
-    void on_resize(VkExtent2D new_extent) override;
+    void on_resize(rr::rhi::Extent2D new_extent) override;
     void render_ui() override;
     void execute(rr::render::FrameContext& fc) override;
 
@@ -44,8 +44,8 @@ private:
     rr::rhi::Device*           device_         = nullptr;
     rr::rhi::BindlessRegistry* registry_       = nullptr;
 
-    VkExtent2D extent_{};
-    VkFormat   swapchain_format_ = VK_FORMAT_UNDEFINED;
+    rr::rhi::Extent2D extent_{};
+    rr::rhi::Format   swapchain_format_ = rr::rhi::Format::Undefined;
 
     rr::shader::ShaderModule     shader_;
     rr::shader::ShaderReflection reflection_;

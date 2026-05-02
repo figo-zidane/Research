@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rhi/Types.h"
+
 #include <cstdint>
 #include <volk.h>
 
@@ -52,7 +54,7 @@ public:
     [[nodiscard]] VkImageView        view()     const noexcept { return view_; }
     [[nodiscard]] VkFormat           format()   const noexcept { return format_; }
     [[nodiscard]] VkExtent3D         extent3d() const noexcept { return extent_; }
-    [[nodiscard]] VkExtent2D         extent2d() const noexcept { return {extent_.width, extent_.height}; }
+    [[nodiscard]] rr::rhi::Extent2D  extent2d() const noexcept { return {extent_.width, extent_.height}; }
     [[nodiscard]] VkImageAspectFlags aspect()   const noexcept { return aspect_; }
     [[nodiscard]] uint32_t           mip_levels()   const noexcept { return mip_levels_; }
     [[nodiscard]] uint32_t           array_layers() const noexcept { return array_layers_; }

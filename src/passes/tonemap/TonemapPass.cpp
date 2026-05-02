@@ -23,7 +23,7 @@ TonemapPass::~TonemapPass() = default;
 void TonemapPass::initialize(rr::rhi::Device& device,
                                rr::shader::SlangSession& session,
                                rr::rhi::BindlessRegistry& registry,
-                               VkFormat swapchain_format)
+                               rr::rhi::Format swapchain_format)
 {
     device_          = &device;
     registry_        = &registry;
@@ -80,7 +80,7 @@ bool TonemapPass::reload_shader(rr::shader::SlangSession& session)
     desc.vert_entry    = 0;
     desc.frag_entry    = 1;
     desc.registry      = registry_;
-    desc.color_formats = {swapchain_format_};
+    desc.color_formats = {static_cast<VkFormat>(swapchain_format_)};
     desc.depth_test    = false;
     desc.depth_write   = false;
     desc.cull_mode     = VK_CULL_MODE_NONE;
@@ -113,7 +113,7 @@ void TonemapPass::create_pipeline(rr::rhi::Device& device,
     desc.vert_entry    = 0;
     desc.frag_entry    = 1;
     desc.registry      = &registry;
-    desc.color_formats = {swapchain_format_};
+    desc.color_formats = {static_cast<VkFormat>(swapchain_format_)};
     // No depth
     desc.depth_test    = false;
     desc.depth_write   = false;
@@ -123,7 +123,7 @@ void TonemapPass::create_pipeline(rr::rhi::Device& device,
     pipeline_.create(device, desc);
 }
 
-void TonemapPass::on_resize(VkExtent2D new_extent)
+void TonemapPass::on_resize(rr::rhi::Extent2D new_extent)
 {
     extent_ = new_extent;
 }
@@ -144,7 +144,10 @@ void TonemapPass::execute(rr::render::FrameContext& fc)
     if (!pipeline_.is_valid()) return;
     if (accumulated_texture_idx == UINT32_MAX) return;
 
-    VkCommandBuffer cmd = fc.command_buffer;
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
+    VkImage accumulated_image = rr::rhi::from_handle<VkImage>(fc.accumulated_image);
+    VkImageView swapchain_image_view = rr::rhi::from_handle<VkImageView>(fc.swapchain_image_view);
+    VkExtent2D swapchain_extent{fc.swapchain_extent.width, fc.swapchain_extent.height};
 
     // Transition accumulated image from GENERAL → SHADER_READ_ONLY
     {
@@ -158,7 +161,7 @@ void TonemapPass::execute(rr::render::FrameContext& fc)
         b.newLayout           = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = fc.accumulated_image;  // set by Application
+        b.image               = accumulated_image;
         b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
                                   VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
         VkDependencyInfo dep{};
@@ -171,14 +174,14 @@ void TonemapPass::execute(rr::render::FrameContext& fc)
     // Dynamic rendering to swapchain
     VkRenderingAttachmentInfo color_att{};
     color_att.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_att.imageView   = fc.swapchain_image_view;
+    color_att.imageView   = swapchain_image_view;
     color_att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color_att.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     color_att.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
 
     VkRenderingInfo rendering{};
     rendering.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering.renderArea           = {{0,0}, fc.swapchain_extent};
+    rendering.renderArea           = {{0,0}, swapchain_extent};
     rendering.layerCount           = 1;
     rendering.colorAttachmentCount = 1;
     rendering.pColorAttachments    = &color_att;
@@ -187,10 +190,10 @@ void TonemapPass::execute(rr::render::FrameContext& fc)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.handle());
 
     VkViewport viewport{0.0f, 0.0f,
-                         static_cast<float>(fc.swapchain_extent.width),
-                         static_cast<float>(fc.swapchain_extent.height),
+                         static_cast<float>(swapchain_extent.width),
+                         static_cast<float>(swapchain_extent.height),
                          0.0f, 1.0f};
-    VkRect2D scissor{{0,0}, fc.swapchain_extent};
+    VkRect2D scissor{{0,0}, swapchain_extent};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
@@ -222,7 +225,7 @@ void TonemapPass::execute(rr::render::FrameContext& fc)
         b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
         b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = fc.accumulated_image;
+        b.image               = accumulated_image;
         b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
                                   VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
         VkDependencyInfo dep{};

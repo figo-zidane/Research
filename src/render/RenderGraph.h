@@ -5,8 +5,6 @@
 #include <memory>
 #include <vector>
 
-#include <volk.h>
-
 namespace rr::render
 {
 // RenderGraph holds the ordered list of RenderPasses and drives their
@@ -24,7 +22,7 @@ public:
     void execute(FrameContext& frame_context);
 
     // Propagate a framebuffer resize to all passes.
-    void on_resize(VkExtent2D extent);
+    void on_resize(rr::rhi::Extent2D extent);
 
     // Read-only access to the pass list (e.g. for EditorUI to iterate renderUI).
     [[nodiscard]] const std::vector<std::unique_ptr<RenderPass>>& passes() const noexcept

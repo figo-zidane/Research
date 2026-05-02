@@ -4,6 +4,7 @@
 #include "render/Renderer.h"
 #include "rhi/BindlessRegistry.h"
 #include "rhi/Buffer.h"
+#include "rhi/CommandRecorder.h"
 #include "rhi/CommandBuffer.h"
 #include "rhi/Device.h"
 #include "rhi/Frame.h"
@@ -17,6 +18,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -55,7 +57,7 @@ private:
     void recreate_swapchain();
 
     // One-time GPU command submission helper.
-    void one_time_submit(std::function<void(VkCommandBuffer)> fn);
+    void one_time_submit(std::function<void(rr::rhi::CommandRecorder)> fn);
 
     // Screenshot: save accumulated image to PNG.
     void capture_screenshot();
@@ -99,7 +101,7 @@ private:
     rr::passes::restir_gi::ReSTIRGIPass*    restir_gi_pass_  = nullptr;
     rr::passes::denoise::AtrousPass*        atrous_pass_     = nullptr;
 
-    VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+    uint64_t     surface_ = 0;
     std::string  title_   = "Research Renderer";
     int          width_   = 1600;
     int          height_  = 900;

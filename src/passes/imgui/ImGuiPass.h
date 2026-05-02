@@ -52,15 +52,12 @@ public:
     // ── RenderPass interface ─────────────────────────────────────────────
     [[nodiscard]] const char* name() const override { return "ImGui"; }
     [[nodiscard]] Reflection  reflect() const override;
-    void on_resize(VkExtent2D new_extent) override;
-    // Update ImGui's minimum image count to match the current swapchain.
-    // Call this from Application::recreate_swapchain() after swapchain recreation.
-    void set_min_image_count(uint32_t count);
+    void on_resize(rr::rhi::Extent2D new_extent) override;
     void execute(rr::render::FrameContext& frame_context) override;
 
 private:
-    bool      initialized_  = false;
-    VkFormat  color_format_ = VK_FORMAT_UNDEFINED;
-    VkExtent2D extent_{};
+    bool             initialized_  = false;
+    rr::rhi::Format  color_format_ = rr::rhi::Format::Undefined;
+    rr::rhi::Extent2D extent_{};
 };
 }

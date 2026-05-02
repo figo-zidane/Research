@@ -1,13 +1,12 @@
 #pragma once
 
 #include "render/RenderPass.h"
+#include "rhi/CommandRecorder.h"
 #include "rhi/Image.h"
 #include "rhi/Pipeline.h"
 #include "shader/ShaderModule.h"
 #include "shader/ShaderReflection.h"
 #include "shader/SlangSession.h"
-
-#include <volk.h>
 
 namespace rr::rhi
 {
@@ -36,18 +35,18 @@ public:
     void initialize(rr::rhi::Device&          device,
                     rr::shader::SlangSession& session,
                     rr::rhi::BindlessRegistry& registry,
-                    VkExtent2D                extent);
+                    rr::rhi::Extent2D        extent);
 
     void shutdown(rr::rhi::Device& device);
 
     // Transition all owned storage images from UNDEFINED → GENERAL.
     // Call once inside a one_time_submit after initialize().
-    void pre_transition_to_general(VkCommandBuffer cmd);
+    void pre_transition_to_general(rr::rhi::CommandRecorder recorder);
 
     // RenderPass interface
     [[nodiscard]] const char* name() const override { return "GBufferPass"; }
     [[nodiscard]] Reflection  reflect() const override;
-    void on_resize(VkExtent2D new_extent) override;
+    void on_resize(rr::rhi::Extent2D new_extent) override;
     void render_ui() override;
     void execute(rr::render::FrameContext& fc) override;
 
@@ -56,13 +55,19 @@ public:
     uint32_t normal_storage_idx      = UINT32_MAX;
     uint32_t material_id_storage_idx = UINT32_MAX;
 
-    // VkImage handles for barrier management by downstream passes.
-    [[nodiscard]] VkImage position_image_handle() const { return position_img_.handle(); }
-    [[nodiscard]] VkImage normal_image_handle()   const { return normal_img_.handle(); }
+    // Image handles for barrier management by downstream passes.
+    [[nodiscard]] rr::rhi::ImageHandle position_image_handle() const
+    {
+        return rr::rhi::to_handle(position_img_.handle());
+    }
+    [[nodiscard]] rr::rhi::ImageHandle normal_image_handle() const
+    {
+        return rr::rhi::to_handle(normal_img_.handle());
+    }
 
 private:
     void create_images(rr::rhi::Device& device, rr::rhi::BindlessRegistry& registry,
-                        VkExtent2D extent);
+                        rr::rhi::Extent2D extent);
     void destroy_images(rr::rhi::Device& device);
     void create_pipeline(rr::rhi::Device& device, rr::rhi::BindlessRegistry& registry);
 
@@ -75,7 +80,7 @@ private:
     rr::rhi::Image material_id_img_; // R32_UINT
     rr::rhi::Image depth_img_;       // D32_SFLOAT
 
-    VkExtent2D extent_{};
+    rr::rhi::Extent2D extent_{};
 
     rr::shader::ShaderModule     shader_;
     rr::shader::ShaderReflection reflection_;

@@ -81,10 +81,10 @@ void Application::shutdown()
 
     bindless_registry_.shutdown(device_);
 
-    if (surface_ != VK_NULL_HANDLE && device_.instance() != VK_NULL_HANDLE)
+    if (surface_ != 0 && device_.instance() != VK_NULL_HANDLE)
     {
-        vkDestroySurfaceKHR(device_.instance(), surface_, nullptr);
-        surface_ = VK_NULL_HANDLE;
+        vkDestroySurfaceKHR(device_.instance(), rr::rhi::from_handle<VkSurfaceKHR>(surface_), nullptr);
+        surface_ = 0;
     }
 
     device_.shutdown();
@@ -162,16 +162,18 @@ void Application::initialize_vulkan()
     create_info.enable_validation            = true;
 
     device_.create_instance(create_info);
-    if (glfwCreateWindowSurface(device_.instance(), window_, nullptr, &surface_) != VK_SUCCESS)
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (glfwCreateWindowSurface(device_.instance(), window_, nullptr, &surface) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create Vulkan window surface.");
     }
-    device_.create_device_with_surface(surface_);
+    surface_ = rr::rhi::to_handle(surface);
+    device_.create_device_with_surface(surface);
 
     int fb_w = 0;
     int fb_h = 0;
     glfwGetFramebufferSize(window_, &fb_w, &fb_h);
-    swapchain_.initialize(device_, surface_,
+    swapchain_.initialize(device_, surface,
                           static_cast<uint32_t>(fb_w),
                           static_cast<uint32_t>(fb_h));
     frame_.initialize(device_);
@@ -188,11 +190,17 @@ void Application::initialize_renderer()
     // waited on before returning.
     scene_.build_cornell_box();
     scene_.upload(device_, bindless_registry_,
-        [this](std::function<void(VkCommandBuffer)> fn) { one_time_submit(fn); });
+        [this](std::function<void(VkCommandBuffer)> fn)
+        {
+            one_time_submit([&](rr::rhi::CommandRecorder recorder)
+            {
+                fn(static_cast<VkCommandBuffer>(recorder.handle()));
+            });
+        });
 
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
 
-    VkExtent2D extent{static_cast<uint32_t>(width_), static_cast<uint32_t>(height_)};
+    rr::rhi::Extent2D extent{static_cast<uint32_t>(width_), static_cast<uint32_t>(height_)};
 
     // GBufferPass — rasterize scene into position/normal/material_id targets.
     // Must run before ReSTIRDIPass which reads its outputs.
@@ -228,7 +236,8 @@ void Application::initialize_renderer()
         gbuffer_pass_->normal_storage_idx);
 
     tonemap_pass_ = renderer_.add_pass<rr::passes::tonemap::TonemapPass>();
-    tonemap_pass_->initialize(device_, slang_session_, bindless_registry_, swapchain_.image_format());
+    tonemap_pass_->initialize(device_, slang_session_, bindless_registry_,
+                              static_cast<rr::rhi::Format>(swapchain_.image_format()));
     tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
     tonemap_pass_->linear_sampler_idx      = scene_.gpu_handles().linear_sampler_idx;
 
@@ -254,8 +263,9 @@ void Application::initialize_renderer()
     // it was registered with.  Without this transition, images that are only
     // transitioned inside their own execute() would still be UNDEFINED when an
     // earlier pass dispatches.
-    one_time_submit([this](VkCommandBuffer cmd)
+    one_time_submit([this](rr::rhi::CommandRecorder recorder)
     {
+        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
         // accumulated_image (AccumulatePass): registered as GENERAL storage image.
         {
             VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
@@ -267,7 +277,7 @@ void Application::initialize_renderer()
             b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
             b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image               = accumulate_pass_->accumulated_image_handle();
+            b.image               = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
             b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
             VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
             dep.imageMemoryBarrierCount = 1;
@@ -277,14 +287,14 @@ void Application::initialize_renderer()
         // GBufferPass storage images: transition UNDEFINED → GENERAL so the
         // bindless heap sees the correct layout before the first frame executes.
         if (gbuffer_pass_)
-            gbuffer_pass_->pre_transition_to_general(cmd);
+            gbuffer_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
         // ReSTIR DI pass: all owned storage images must be GENERAL before first frame.
         if (restir_di_pass_)
-            restir_di_pass_->pre_transition_to_general(cmd);
+            restir_di_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
         if (restir_gi_pass_)
-            restir_gi_pass_->pre_transition_to_general(cmd);
+            restir_gi_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
         if (atrous_pass_)
-            atrous_pass_->pre_transition_to_general(cmd);
+            atrous_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
     });
 
     // Hot reload — watch shaders directory
@@ -450,18 +460,18 @@ void Application::render_frame()
 
     // Build the frame context
     rr::render::FrameContext frame_context{};
-    frame_context.command_buffer       = cmd;
+    frame_context.command_recorder     = rr::rhi::CommandRecorder{static_cast<void*>(cmd)};
     frame_context.device               = &device_;
     frame_context.bindless_registry    = &bindless_registry_;
     frame_context.scene                = &scene_;
     frame_context.renderer             = &renderer_;
-    frame_context.swapchain_image_view = swapchain_.image_view(image_index);
-    frame_context.swapchain_extent     = swapchain_.extent();
+    frame_context.swapchain_image_view = rr::rhi::to_handle(swapchain_.image_view(image_index));
+    frame_context.swapchain_extent     = {swapchain_.extent().width, swapchain_.extent().height};
     frame_context.image_index          = image_index;
     frame_context.frame_index          = frame_index;
     frame_context.delta_time_seconds   = delta_time_seconds_;
     uint32_t realtime_texture_idx = UINT32_MAX;
-    VkImage  realtime_image       = VK_NULL_HANDLE;
+    rr::rhi::ImageHandle realtime_image = 0;
     if (use_gi_ && restir_gi_pass_)
     {
         realtime_texture_idx = restir_gi_pass_->output_texture_idx;
@@ -481,7 +491,7 @@ void Application::render_frame()
         tonemap_pass_->accumulated_texture_idx = atrous_pass_->output_texture_idx();
         frame_context.accumulated_image        = atrous_pass_->output_image_handle();
     }
-    else if (realtime_image != VK_NULL_HANDLE)
+    else if (realtime_image != 0)
     {
         tonemap_pass_->accumulated_texture_idx = realtime_texture_idx;
         frame_context.accumulated_image        = realtime_image;
@@ -574,12 +584,94 @@ void Application::recreate_swapchain()
         glfwGetFramebufferSize(window_, &fb_w, &fb_h);
     }
     vkDeviceWaitIdle(device_.device());
+    const uint32_t previous_image_count = swapchain_.image_count();
     swapchain_.recreate(static_cast<uint32_t>(fb_w), static_cast<uint32_t>(fb_h));
-    renderer_.on_resize(swapchain_.extent());
-    if (imgui_pass_ != nullptr)
+    const bool swapchain_image_count_changed = swapchain_.image_count() != previous_image_count;
+    width_  = fb_w;
+    height_ = fb_h;
+    camera_.on_resize(static_cast<float>(fb_w) / static_cast<float>(fb_h));
+
+    // Resized render targets invalidate progressive accumulation history.
+    camera_moved_   = true;
+    accumulated_spp_ = 0;
+
+    const VkExtent2D swapchain_extent = swapchain_.extent();
+    renderer_.on_resize({swapchain_extent.width, swapchain_extent.height});
+
+    // Pass resize recreates images and re-registers them in the bindless heap.
+    // Refresh all cached downstream indices and handles before the next frame.
+    if (gbuffer_pass_ && restir_di_pass_)
     {
-        imgui_pass_->set_min_image_count(swapchain_.image_count());
+        restir_di_pass_->set_gbuffer_indices(
+            gbuffer_pass_->position_storage_idx,
+            gbuffer_pass_->position_image_handle(),
+            gbuffer_pass_->normal_storage_idx,
+            gbuffer_pass_->normal_image_handle());
     }
+    if (pathtracer_pass_ && accumulate_pass_)
+    {
+        accumulate_pass_->radiance_storage_idx = pathtracer_pass_->radiance_storage_idx;
+    }
+    if (gbuffer_pass_ && atrous_pass_)
+    {
+        atrous_pass_->set_gbuffer_indices(
+            gbuffer_pass_->position_storage_idx,
+            gbuffer_pass_->normal_storage_idx);
+    }
+    if (gbuffer_pass_ && restir_gi_pass_ && restir_di_pass_)
+    {
+        restir_gi_pass_->set_inputs(
+            gbuffer_pass_->position_storage_idx,
+            gbuffer_pass_->normal_storage_idx,
+            restir_di_pass_->output_texture_idx,
+            restir_di_pass_->output_image_handle());
+    }
+    if (tonemap_pass_ && accumulate_pass_)
+    {
+        tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
+        tonemap_pass_->linear_sampler_idx      = scene_.gpu_handles().linear_sampler_idx;
+    }
+
+    if (imgui_pass_ != nullptr && swapchain_image_count_changed)
+    {
+        imgui_pass_->shutdown();
+        imgui_pass_->initialize(device_, window_, swapchain_);
+    }
+
+    // Recreated persistent images are back in UNDEFINED, but the bindless heap is
+    // bound before pass execution each frame. Transition them up front again.
+    one_time_submit([this](rr::rhi::CommandRecorder recorder)
+    {
+        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
+
+        if (accumulate_pass_)
+        {
+            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            b.srcAccessMask       = 0;
+            b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+            b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+            b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
+            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.image               = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
+            b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers    = &b;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        }
+
+        if (gbuffer_pass_)
+            gbuffer_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
+        if (restir_di_pass_)
+            restir_di_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
+        if (restir_gi_pass_)
+            restir_gi_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
+        if (atrous_pass_)
+            atrous_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
+    });
 }
 
 void Application::glfw_resize_callback(GLFWwindow* window, int /*width*/, int /*height*/)
@@ -636,7 +728,13 @@ void Application::reload_scene_cornell()
     scene_.clear_cpu_data();
     scene_.build_cornell_box();
     scene_.upload(device_, bindless_registry_,
-        [this](std::function<void(VkCommandBuffer)> fn) { one_time_submit(fn); });
+        [this](std::function<void(VkCommandBuffer)> fn)
+        {
+            one_time_submit([&](rr::rhi::CommandRecorder recorder)
+            {
+                fn(static_cast<VkCommandBuffer>(recorder.handle()));
+            });
+        });
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
     camera_ = rr::scene::Camera{};
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
@@ -668,7 +766,13 @@ void Application::reload_scene_gltf(const std::string& path)
         current_scene_name_ = std::filesystem::path(path).filename().string();
     }
     scene_.upload(device_, bindless_registry_,
-        [this](std::function<void(VkCommandBuffer)> fn) { one_time_submit(fn); });
+        [this](std::function<void(VkCommandBuffer)> fn)
+        {
+            one_time_submit([&](rr::rhi::CommandRecorder recorder)
+            {
+                fn(static_cast<VkCommandBuffer>(recorder.handle()));
+            });
+        });
     camera_ = rr::scene::Camera{};
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
     // Update passes that cache scene handles
@@ -680,7 +784,7 @@ void Application::reload_scene_gltf(const std::string& path)
     rr::core::log()->info("[Scene] Loaded '{}'", current_scene_name_);
 }
 
-void Application::one_time_submit(std::function<void(VkCommandBuffer)> fn)
+void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> fn)
 {
     // Allocate a temporary command buffer from the pool
     VkCommandBufferAllocateInfo alloc_info{};
@@ -698,7 +802,7 @@ void Application::one_time_submit(std::function<void(VkCommandBuffer)> fn)
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(tmp_cmd, &begin_info);
 
-    fn(tmp_cmd);
+    fn(rr::rhi::CommandRecorder{static_cast<void*>(tmp_cmd)});
 
     vkEndCommandBuffer(tmp_cmd);
 
@@ -733,11 +837,12 @@ void Application::capture_screenshot()
     bd.alloc_flags  = 0x00000800u;  // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
     staging.create(device_, bd);
 
-    VkImage src = accumulate_pass_->accumulated_image_handle();
+    VkImage src = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
 
     // GPU commands: transition accumulated image to TRANSFER_SRC, copy, transition back.
-    one_time_submit([&](VkCommandBuffer cmd)
+    one_time_submit([&](rr::rhi::CommandRecorder recorder)
     {
+        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
         // GENERAL → TRANSFER_SRC_OPTIMAL
         VkImageMemoryBarrier2 b{};
         b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -817,14 +922,14 @@ void Application::compute_mse()
 {
     if (!accumulate_pass_) return;
 
-    VkImage img_ri = VK_NULL_HANDLE;
+    rr::rhi::ImageHandle img_ri = 0;
     if (use_denoise_ && atrous_pass_ && (use_di_ || use_gi_))
         img_ri = atrous_pass_->output_image_handle();
     else if (use_gi_ && restir_gi_pass_)
         img_ri = restir_gi_pass_->output_image_handle();
     else if (use_di_ && restir_di_pass_)
         img_ri = restir_di_pass_->output_image_handle();
-    if (img_ri == VK_NULL_HANDLE) return;
+    if (img_ri == 0) return;
 
     const VkExtent2D ext = swapchain_.extent();
     const uint32_t   crop = kMseCropSize;
@@ -836,10 +941,12 @@ void Application::compute_mse()
 
     // Use persistent staging buffers (allocated in initialize_renderer).
     // No alloc/free per call — avoids the per-frame GPU stall.
-    VkImage img_pt = accumulate_pass_->accumulated_image_handle();
+    const VkImage img_pt = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
+    const VkImage img_ri_vk = rr::rhi::from_handle<VkImage>(img_ri);
 
-    one_time_submit([&](VkCommandBuffer cmd)
+    one_time_submit([&](rr::rhi::CommandRecorder recorder)
     {
+        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
         // Helper lambda — captures nothing from outer compute_mse; all by param.
         // Barrier: GENERAL -> TRANSFER_SRC
         auto barrier_to_src = [](VkCommandBuffer c, VkImage img)
@@ -884,9 +991,9 @@ void Application::compute_mse()
         vkCmdCopyImageToBuffer(cmd, img_pt, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_pt_.handle(), 1, &region);
         barrier_to_general(cmd, img_pt);
 
-        barrier_to_src(cmd, img_ri);
-        vkCmdCopyImageToBuffer(cmd, img_ri, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_ri_.handle(), 1, &region);
-        barrier_to_general(cmd, img_ri);
+        barrier_to_src(cmd, img_ri_vk);
+        vkCmdCopyImageToBuffer(cmd, img_ri_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_ri_.handle(), 1, &region);
+        barrier_to_general(cmd, img_ri_vk);
     });
 
     const float* pt = static_cast<const float*>(mse_staging_pt_.map(device_));

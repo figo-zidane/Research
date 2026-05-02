@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/RenderPass.h"
+#include "rhi/CommandRecorder.h"
 #include "rhi/Image.h"
 #include "rhi/Pipeline.h"
 #include "shader/ShaderModule.h"
@@ -21,26 +22,26 @@ public:
     void initialize(rr::rhi::Device&           device,
                     rr::shader::SlangSession&  session,
                     rr::rhi::BindlessRegistry& registry,
-                    VkExtent2D                 extent);
+                    rr::rhi::Extent2D          extent);
 
     void shutdown(rr::rhi::Device& device);
     bool reload_shader(rr::shader::SlangSession& session);
 
     [[nodiscard]] const char* name() const override { return "ReSTIRGIPass"; }
     [[nodiscard]] Reflection  reflect() const override;
-    void on_resize(VkExtent2D new_extent) override;
+    void on_resize(rr::rhi::Extent2D new_extent) override;
     void render_ui() override;
     void execute(rr::render::FrameContext& fc) override;
 
     uint32_t output_storage_idx = UINT32_MAX;
     uint32_t output_texture_idx = UINT32_MAX;
 
-    [[nodiscard]] VkImage output_image_handle() const;
+    [[nodiscard]] rr::rhi::ImageHandle output_image_handle() const;
 
     void set_inputs(uint32_t gbuf_pos_idx,
                     uint32_t gbuf_norm_idx,
                     uint32_t direct_input_texture_idx,
-                    VkImage  direct_input_image)
+                    rr::rhi::ImageHandle direct_input_image)
     {
         gbuf_pos_idx_           = gbuf_pos_idx;
         gbuf_norm_idx_          = gbuf_norm_idx;
@@ -48,7 +49,7 @@ public:
         direct_input_image_     = direct_input_image;
     }
 
-    void pre_transition_to_general(VkCommandBuffer cmd);
+    void pre_transition_to_general(rr::rhi::CommandRecorder recorder);
     void reset_history()
     {
         reservoir_flip_     = 0;
@@ -74,7 +75,7 @@ public:
 private:
     void create_images(rr::rhi::Device& device,
                        rr::rhi::BindlessRegistry& registry,
-                       VkExtent2D extent);
+                       rr::rhi::Extent2D extent);
     void destroy_images(rr::rhi::Device& device);
     void create_pipelines(rr::rhi::Device& device,
                           rr::rhi::BindlessRegistry& registry);
@@ -85,7 +86,7 @@ private:
     uint32_t gbuf_pos_idx_             = UINT32_MAX;
     uint32_t gbuf_norm_idx_            = UINT32_MAX;
     uint32_t direct_input_texture_idx_ = UINT32_MAX;
-    VkImage  direct_input_image_       = VK_NULL_HANDLE;
+    rr::rhi::ImageHandle direct_input_image_ = 0;
 
     rr::rhi::Image reservoir_pos_[2];
     rr::rhi::Image reservoir_rad_[2];
@@ -100,7 +101,7 @@ private:
 
     rr::rhi::Image output_img_;
 
-    VkExtent2D extent_{};
+    rr::rhi::Extent2D extent_{};
 
     rr::shader::ShaderModule     initial_shader_;
     rr::shader::ShaderModule     temporal_shader_;

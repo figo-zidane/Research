@@ -7,8 +7,6 @@
 #include <memory>
 #include <utility>
 
-#include <volk.h>
-
 namespace rr::render
 {
 class Renderer
@@ -27,7 +25,7 @@ public:
     }
 
     // Notify all passes of a framebuffer resize.
-    void on_resize(VkExtent2D extent) { graph_.on_resize(extent); }
+    void on_resize(rr::rhi::Extent2D extent) { graph_.on_resize(extent); }
 
     // Execute all passes in order.
     void render(FrameContext& frame_context) { graph_.execute(frame_context); }

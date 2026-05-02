@@ -40,7 +40,7 @@ GBufferPass::~GBufferPass()
 void GBufferPass::initialize(rr::rhi::Device& device,
                                rr::shader::SlangSession& session,
                                rr::rhi::BindlessRegistry& registry,
-                               VkExtent2D extent)
+                               rr::rhi::Extent2D extent)
 {
     device_   = &device;
     registry_ = &registry;
@@ -72,7 +72,7 @@ void GBufferPass::shutdown(rr::rhi::Device& device)
 
 void GBufferPass::create_images(rr::rhi::Device& device,
                                   rr::rhi::BindlessRegistry& registry,
-                                  VkExtent2D ext)
+                                  rr::rhi::Extent2D ext)
 {
     const VkExtent3D e3{ext.width, ext.height, 1};
     const VkImageUsageFlags storage_usage =
@@ -158,8 +158,9 @@ void GBufferPass::create_pipeline(rr::rhi::Device& device,
     pipeline_.create(device, desc);
 }
 
-void GBufferPass::pre_transition_to_general(VkCommandBuffer cmd)
+void GBufferPass::pre_transition_to_general(rr::rhi::CommandRecorder recorder)
 {
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
     auto transition = [&](VkImage img) {
         VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
         b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
@@ -183,7 +184,7 @@ void GBufferPass::pre_transition_to_general(VkCommandBuffer cmd)
     transition(material_id_img_.handle());
 }
 
-void GBufferPass::on_resize(VkExtent2D new_extent)
+void GBufferPass::on_resize(rr::rhi::Extent2D new_extent)
 {
     if (!initialized_) return;
     extent_ = new_extent;
@@ -196,11 +197,11 @@ rr::render::RenderPass::Reflection GBufferPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"gbuffer_position",    ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
+                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
     r.outputs.push_back({"gbuffer_normal",      ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R32G32B32A32_SFLOAT, extent_});
+                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
     r.outputs.push_back({"gbuffer_material_id", ResourceDesc::Kind::Texture,
-                          VK_FORMAT_R32_UINT, extent_});
+                          static_cast<rr::rhi::Format>(VK_FORMAT_R32_UINT), extent_});
     return r;
 }
 
@@ -218,8 +219,9 @@ void GBufferPass::execute(rr::render::FrameContext& fc)
     if (!scene.is_uploaded() || scene.instance_count() == 0) return;
     if (!pipeline_.is_valid()) return;
 
-    VkCommandBuffer cmd = fc.command_buffer;
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
     const auto& handles = scene.gpu_handles();
+    const VkExtent2D extent{extent_.width, extent_.height};
 
     // Transition GBuffer images to COLOR_ATTACHMENT_OPTIMAL
     auto barrier = [&](VkImage img, VkImageAspectFlags aspect,
@@ -281,7 +283,7 @@ void GBufferPass::execute(rr::render::FrameContext& fc)
 
     VkRenderingInfo rendering{};
     rendering.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering.renderArea           = {{0,0}, extent_};
+    rendering.renderArea           = {{0,0}, extent};
     rendering.layerCount           = 1;
     rendering.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
     rendering.pColorAttachments    = color_attachments.data();
@@ -294,7 +296,7 @@ void GBufferPass::execute(rr::render::FrameContext& fc)
                          static_cast<float>(extent_.width),
                          static_cast<float>(extent_.height),
                          0.0f, 1.0f};
-    VkRect2D scissor{{0,0}, extent_};
+    VkRect2D scissor{{0,0}, extent};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
