@@ -122,6 +122,13 @@ add_library(restir_gi_pass STATIC
 target_include_directories(restir_gi_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(restir_gi_pass PUBLIC render rhi imgui::imgui)
 
+# ── A-trous denoiser pass ─────────────────────────────────────────────────────
+add_library(atrous_pass STATIC
+  passes/denoise/AtrousPass.cpp
+)
+target_include_directories(atrous_pass PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(atrous_pass PUBLIC render rhi imgui::imgui)
+
 # ── Application / entry point ────────────────────────────────────────────────
 add_library(app STATIC
   app/Application.cpp
@@ -131,7 +138,7 @@ add_library(app STATIC
 target_include_directories(app PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(app PUBLIC core render rhi scene shader
   imgui_pass gbuffer_pass pathtracer_pass accumulate_pass tonemap_pass
-  restir_di_pass restir_gi_pass
+  restir_di_pass restir_gi_pass atrous_pass
   glfw imgui::imgui)
 
 add_executable(research-renderer

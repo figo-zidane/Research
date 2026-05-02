@@ -13,6 +13,11 @@ namespace rr::shader
 class HotReload;
 }
 
+namespace rr::passes::denoise
+{
+class AtrousPass;
+}
+
 namespace rr::app
 {
 // EditorUI builds the ImGui content for each frame.
@@ -50,6 +55,7 @@ public:
                bool&                       load_cornell_request,
                bool&                       load_gltf_request,
                const std::string&          current_scene_name,
+               rr::passes::denoise::AtrousPass* atrous_pass       = nullptr,
                const rr::shader::HotReload* hot_reload        = nullptr,
                const float*                 mse_history       = nullptr,
                uint32_t                     mse_history_count  = 0,

@@ -28,6 +28,7 @@ namespace rr::passes::accumulate   { class AccumulatePass;   }
 namespace rr::passes::tonemap      { class TonemapPass;       }
 namespace rr::passes::restir_di    { class ReSTIRDIPass;     }
 namespace rr::passes::restir_gi    { class ReSTIRGIPass;     }
+namespace rr::passes::denoise      { class AtrousPass;       }
 
 namespace rr::app
 {
@@ -96,6 +97,7 @@ private:
     rr::passes::tonemap::TonemapPass*       tonemap_pass_    = nullptr;
     rr::passes::restir_di::ReSTIRDIPass*    restir_di_pass_  = nullptr;
     rr::passes::restir_gi::ReSTIRGIPass*    restir_gi_pass_  = nullptr;
+    rr::passes::denoise::AtrousPass*        atrous_pass_     = nullptr;
 
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     std::string  title_   = "Research Renderer";

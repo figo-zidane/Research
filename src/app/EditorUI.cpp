@@ -1,5 +1,6 @@
 #include "app/EditorUI.h"
 
+#include "passes/denoise/AtrousPass.h"
 #include "render/RenderGraph.h"
 #include "render/Renderer.h"
 #include "shader/HotReload.h"
@@ -23,6 +24,7 @@ void EditorUI::build(const rr::render::Renderer& renderer,
                      bool&        load_cornell_request,
                      bool&        load_gltf_request,
                      const std::string& current_scene_name,
+                     rr::passes::denoise::AtrousPass* atrous_pass,
                      const rr::shader::HotReload* hot_reload,
                      const float*  mse_history,
                      uint32_t      mse_history_count,
@@ -93,17 +95,28 @@ void EditorUI::build(const rr::render::Renderer& renderer,
         {
             ImGui::Checkbox("Direct Lighting (ReSTIR DI)", &use_di);
             ImGui::Checkbox("Indirect Lighting (GI)", &use_gi);
-            ImGui::BeginDisabled();
+            const bool can_denoise = use_di || use_gi;
+            if (!can_denoise)
+                use_denoise = false;
+            if (!can_denoise)
+                ImGui::BeginDisabled();
             ImGui::Checkbox("Denoise", &use_denoise);
-            ImGui::EndDisabled();
-            use_denoise = false;
-            ImGui::TextDisabled("Denoiser will be wired after Phase F lands.");
+            if (!can_denoise)
+                ImGui::EndDisabled();
+            if (!can_denoise)
+                ImGui::TextDisabled("Enable ReSTIR DI or GI to denoise the realtime output.");
             ImGui::Spacing();
             ImGui::Checkbox("Compute both for MSE comparison", &mse_compare);
             ImGui::SameLine();
             ImGui::TextDisabled("(?)");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("PathTracer stays active alongside the enabled realtime passes.\nUse when comparing MSE. Disables GPU optimisation.");
+        }
+
+        if (use_denoise && atrous_pass &&
+            ImGui::CollapsingHeader("Denoiser", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            atrous_pass->render_ui();
         }
 
         // ── MSE graph ────────────────────────────────────────────────────
