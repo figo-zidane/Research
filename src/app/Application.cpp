@@ -190,12 +190,9 @@ void Application::initialize_renderer()
     // waited on before returning.
     scene_.build_cornell_box();
     scene_.upload(device_, bindless_registry_,
-        [this](std::function<void(VkCommandBuffer)> fn)
+        [this](std::function<void(rr::rhi::CommandRecorder)> fn)
         {
-            one_time_submit([&](rr::rhi::CommandRecorder recorder)
-            {
-                fn(static_cast<VkCommandBuffer>(recorder.handle()));
-            });
+            one_time_submit(fn);
         });
 
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
@@ -250,9 +247,9 @@ void Application::initialize_renderer()
             static_cast<VkDeviceSize>(kMseCropSize * kMseCropSize) * 4 * sizeof(float);
         rr::rhi::BufferDesc desc{};
         desc.size         = mse_buf_size;
-        desc.usage        = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        desc.memory_usage = 7;          // VMA_MEMORY_USAGE_AUTO
-        desc.alloc_flags  = 0x00000800u; // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+        desc.usage        = rr::rhi::BufferUsage::TransferDst;
+        desc.memory_usage = rr::rhi::MemoryUsage::Auto;
+        desc.alloc_flags  = rr::rhi::AllocFlags::HostAccessRandom;
         mse_staging_pt_.create(device_, desc);
         mse_staging_ri_.create(device_, desc);
     }
@@ -728,12 +725,9 @@ void Application::reload_scene_cornell()
     scene_.clear_cpu_data();
     scene_.build_cornell_box();
     scene_.upload(device_, bindless_registry_,
-        [this](std::function<void(VkCommandBuffer)> fn)
+        [this](std::function<void(rr::rhi::CommandRecorder)> fn)
         {
-            one_time_submit([&](rr::rhi::CommandRecorder recorder)
-            {
-                fn(static_cast<VkCommandBuffer>(recorder.handle()));
-            });
+            one_time_submit(fn);
         });
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
     camera_ = rr::scene::Camera{};
@@ -766,12 +760,9 @@ void Application::reload_scene_gltf(const std::string& path)
         current_scene_name_ = std::filesystem::path(path).filename().string();
     }
     scene_.upload(device_, bindless_registry_,
-        [this](std::function<void(VkCommandBuffer)> fn)
+        [this](std::function<void(rr::rhi::CommandRecorder)> fn)
         {
-            one_time_submit([&](rr::rhi::CommandRecorder recorder)
-            {
-                fn(static_cast<VkCommandBuffer>(recorder.handle()));
-            });
+            one_time_submit(fn);
         });
     camera_ = rr::scene::Camera{};
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
@@ -832,9 +823,9 @@ void Application::capture_screenshot()
     rr::rhi::Buffer staging;
     rr::rhi::BufferDesc bd{};
     bd.size         = buf_size;
-    bd.usage        = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    bd.memory_usage = 7;            // VMA_MEMORY_USAGE_AUTO
-    bd.alloc_flags  = 0x00000800u;  // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT
+    bd.usage        = rr::rhi::BufferUsage::TransferDst;
+    bd.memory_usage = rr::rhi::MemoryUsage::Auto;
+    bd.alloc_flags  = rr::rhi::AllocFlags::HostAccessRandom;
     staging.create(device_, bd);
 
     VkImage src = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
@@ -872,7 +863,7 @@ void Application::capture_screenshot()
         region.imageOffset       = {0, 0, 0};
         region.imageExtent       = {ext.width, ext.height, 1};
         vkCmdCopyImageToBuffer(cmd, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               staging.handle(), 1, &region);
+                               rr::rhi::from_handle<VkBuffer>(staging.handle()), 1, &region);
 
         // TRANSFER_SRC_OPTIMAL → GENERAL (restore for next frame)
         b.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
@@ -988,11 +979,13 @@ void Application::compute_mse()
         region.imageExtent      = {crop, crop, 1};
 
         barrier_to_src(cmd, img_pt);
-        vkCmdCopyImageToBuffer(cmd, img_pt, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_pt_.handle(), 1, &region);
+        vkCmdCopyImageToBuffer(cmd, img_pt, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               rr::rhi::from_handle<VkBuffer>(mse_staging_pt_.handle()), 1, &region);
         barrier_to_general(cmd, img_pt);
 
         barrier_to_src(cmd, img_ri_vk);
-        vkCmdCopyImageToBuffer(cmd, img_ri_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, mse_staging_ri_.handle(), 1, &region);
+        vkCmdCopyImageToBuffer(cmd, img_ri_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               rr::rhi::from_handle<VkBuffer>(mse_staging_ri_.handle()), 1, &region);
         barrier_to_general(cmd, img_ri_vk);
     });
 

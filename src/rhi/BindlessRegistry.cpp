@@ -1,6 +1,7 @@
 #include "rhi/BindlessRegistry.h"
 
 #include "core/Log.h"
+#include "rhi/AccelStructure.h"
 #include "rhi/Device.h"
 #include "rhi/VulkanTypeCasts.h"
 
@@ -77,13 +78,13 @@ void BindlessRegistry::initialize(Device& device)
     {
         BufferDesc desc{};
         desc.size        = res_heap_size;
-        desc.usage       = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT |
-                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        desc.memory_usage = 4; // VMA_MEMORY_USAGE_AUTO
+        desc.usage       = BufferUsage::DescriptorHeap |
+                   BufferUsage::ShaderDeviceAddress;
+        desc.memory_usage = MemoryUsage::Auto;
         // Host-access write + persistent map so vkWriteResourceDescriptorsEXT
         // can write directly into the buffer's mapped memory.
-        desc.alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                           VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        desc.alloc_flags = AllocFlags::HostAccessSequentialWrite |
+                   AllocFlags::Mapped;
         desc.debug_name  = "BindlessResourceHeap";
 
         resource_heap_.buf.create(device, desc);
@@ -101,11 +102,11 @@ void BindlessRegistry::initialize(Device& device)
     {
         BufferDesc desc{};
         desc.size        = smpl_heap_size;
-        desc.usage       = VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT |
-                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        desc.memory_usage = 4; // VMA_MEMORY_USAGE_AUTO
-        desc.alloc_flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                           VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        desc.usage       = BufferUsage::DescriptorHeap |
+                   BufferUsage::ShaderDeviceAddress;
+        desc.memory_usage = MemoryUsage::Auto;
+        desc.alloc_flags = AllocFlags::HostAccessSequentialWrite |
+                   AllocFlags::Mapped;
         desc.debug_name  = "BindlessSamplerHeap";
 
         sampler_heap_.buf.create(device, desc);
@@ -219,16 +220,14 @@ uint32_t BindlessRegistry::register_storage_image(Device&         device,
     return index;
 }
 
-uint32_t BindlessRegistry::register_buffer(Device&         device,
-                                            VkDeviceAddress address,
-                                            VkDeviceSize    size)
+uint32_t BindlessRegistry::register_buffer(Device& device, const Buffer& buffer)
 {
     if (next_scene_buffer_ >= kMaxSceneBuffers)
     {
         throw std::runtime_error("BindlessRegistry: scene buffer capacity exhausted.");
     }
 
-    VkDeviceAddressRangeEXT addr_range{address, size};
+    VkDeviceAddressRangeEXT addr_range{buffer.device_address(), buffer.size()};
 
     VkResourceDescriptorInfoEXT res_info{};
     res_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
@@ -240,16 +239,14 @@ uint32_t BindlessRegistry::register_buffer(Device&         device,
     return index;
 }
 
-uint32_t BindlessRegistry::register_accel_struct(Device&         device,
-                                                  VkDeviceAddress address,
-                                                  VkDeviceSize    size)
+uint32_t BindlessRegistry::register_accel_struct(Device& device, const AccelStructure& accel_structure)
 {
     if (next_tlas_ >= kMaxTlas)
     {
         throw std::runtime_error("BindlessRegistry: TLAS capacity exhausted.");
     }
 
-    VkDeviceAddressRangeEXT addr_range{address, size};
+    VkDeviceAddressRangeEXT addr_range{accel_structure.device_address(), accel_structure.buffer().size()};
 
     VkResourceDescriptorInfoEXT res_info{};
     res_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
@@ -261,7 +258,7 @@ uint32_t BindlessRegistry::register_accel_struct(Device&         device,
     return index;
 }
 
-uint32_t BindlessRegistry::register_sampler(Device& device, const VkSamplerCreateInfo& info)
+uint32_t BindlessRegistry::register_sampler(Device& device, const SamplerDesc& desc)
 {
     if (next_sampler_ >= kMaxSamplers)
     {
@@ -273,6 +270,7 @@ uint32_t BindlessRegistry::register_sampler(Device& device, const VkSamplerCreat
                    next_sampler_ * smpl_stride_;
     dest.size = smpl_stride_;
 
+    const VkSamplerCreateInfo info = to_vk_sampler_create_info(desc);
     if (vkWriteSamplerDescriptorsEXT(device.device(), 1, &info, &dest) != VK_SUCCESS)
     {
         throw std::runtime_error("vkWriteSamplerDescriptorsEXT failed.");

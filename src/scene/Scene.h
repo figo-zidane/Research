@@ -105,9 +105,9 @@ public:
     // ── GPU upload ────────────────────────────────────────────────────────
     // Upload to GPU, register with BindlessRegistry, build BLAS/TLAS.
     // one_time_submit: Application-provided function that accepts a recording
-    // callback, allocates a fresh VkCommandBuffer, calls the callback to record
+    // callback, allocates a fresh command recorder, calls the callback to record
     // GPU work, then submits and waits for the GPU to finish.
-    using OneTimeSubmitFn = std::function<void(std::function<void(VkCommandBuffer)>)>;
+    using OneTimeSubmitFn = std::function<void(std::function<void(rr::rhi::CommandRecorder)>)>;
     void upload(rr::rhi::Device&           device,
                 rr::rhi::BindlessRegistry&  registry,
                 OneTimeSubmitFn             one_time_submit);

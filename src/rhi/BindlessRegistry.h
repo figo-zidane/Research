@@ -2,6 +2,7 @@
 
 #include "rhi/Buffer.h"
 #include "rhi/Image.h"
+#include "rhi/SamplerDesc.h"
 
 #include <cstdint>
 #include <volk.h>
@@ -9,6 +10,7 @@
 namespace rr::rhi
 {
 class Device;
+class AccelStructure;
 
 // BindlessRegistry manages two VK_EXT_descriptor_heap buffers:
 //
@@ -74,18 +76,16 @@ public:
     // (VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).
     // Returns the gScene[] index.
     uint32_t register_buffer(Device&         device,
-                             VkDeviceAddress address,
-                             VkDeviceSize    size);
+                             const Buffer&   buffer);
 
     // Register a TLAS (VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR).
     // Returns the gTLAS[] index.
     uint32_t register_accel_struct(Device&         device,
-                                   VkDeviceAddress address,
-                                   VkDeviceSize    size);
+                                   const AccelStructure& accel_structure);
 
     // Register a sampler and write it to the sampler heap.
     // Returns the gSamplers[] index.
-    uint32_t register_sampler(Device& device, const VkSamplerCreateInfo& info);
+    uint32_t register_sampler(Device& device, const SamplerDesc& desc);
 
     // ── Per-frame command buffer setup ───────────────────────────────────
 

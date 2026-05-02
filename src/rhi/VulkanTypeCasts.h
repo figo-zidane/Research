@@ -2,9 +2,11 @@
 
 #include "rhi/Barrier.h"
 #include "rhi/Rendering.h"
+#include "rhi/SamplerDesc.h"
 #include "rhi/Types.h"
 
 #include <volk.h>
+#include <vma/vk_mem_alloc.h>
 
 #include <stdexcept>
 
@@ -96,6 +98,108 @@ namespace rr::rhi
     if (has_any_flag(usage, ImageUsage::DepthStencilAttachment)) flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     if (has_any_flag(usage, ImageUsage::HostTransfer))           flags |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
     return flags;
+}
+
+[[nodiscard]] inline VkBufferUsageFlags to_vk_buffer_usage(BufferUsage usage)
+{
+    VkBufferUsageFlags flags = 0;
+    if (has_any_flag(usage, BufferUsage::TransferSrc))             flags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    if (has_any_flag(usage, BufferUsage::TransferDst))             flags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    if (has_any_flag(usage, BufferUsage::Vertex))                  flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    if (has_any_flag(usage, BufferUsage::Index))                   flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    if (has_any_flag(usage, BufferUsage::Storage))                 flags |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    if (has_any_flag(usage, BufferUsage::Uniform))                 flags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    if (has_any_flag(usage, BufferUsage::ShaderDeviceAddress))     flags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    if (has_any_flag(usage, BufferUsage::AccelStructureBuildInput)) flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    if (has_any_flag(usage, BufferUsage::AccelStructureStorage))   flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+    if (has_any_flag(usage, BufferUsage::IndirectBuffer))          flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+    if (has_any_flag(usage, BufferUsage::DescriptorHeap))          flags |= VK_BUFFER_USAGE_DESCRIPTOR_HEAP_BIT_EXT;
+    return flags;
+}
+
+[[nodiscard]] inline VmaMemoryUsage to_vma_memory_usage(MemoryUsage usage)
+{
+    switch (usage)
+    {
+    case MemoryUsage::GpuOnly: return VMA_MEMORY_USAGE_GPU_ONLY;
+    case MemoryUsage::CpuToGpu: return VMA_MEMORY_USAGE_CPU_TO_GPU;
+    case MemoryUsage::GpuToCpu: return VMA_MEMORY_USAGE_GPU_TO_CPU;
+    case MemoryUsage::CpuOnly: return VMA_MEMORY_USAGE_CPU_ONLY;
+    case MemoryUsage::Auto: return VMA_MEMORY_USAGE_AUTO;
+    }
+    throw std::runtime_error("Unsupported MemoryUsage.");
+}
+
+[[nodiscard]] inline VmaAllocationCreateFlags to_vma_allocation_flags(AllocFlags flags)
+{
+    VmaAllocationCreateFlags vk_flags = 0;
+    if (has_any_flag(flags, AllocFlags::HostAccessSequentialWrite)) vk_flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+    if (has_any_flag(flags, AllocFlags::HostAccessRandom))          vk_flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    if (has_any_flag(flags, AllocFlags::Mapped))                    vk_flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    return vk_flags;
+}
+
+[[nodiscard]] inline VkCompareOp to_vk_compare_op(CompareOp op);
+
+[[nodiscard]] inline VkFilter to_vk_sampler_filter(SamplerFilter filter)
+{
+    switch (filter)
+    {
+    case SamplerFilter::Nearest: return VK_FILTER_NEAREST;
+    case SamplerFilter::Linear: return VK_FILTER_LINEAR;
+    }
+    throw std::runtime_error("Unsupported SamplerFilter.");
+}
+
+[[nodiscard]] inline VkSamplerMipmapMode to_vk_sampler_mipmap_mode(SamplerMipmapMode mode)
+{
+    switch (mode)
+    {
+    case SamplerMipmapMode::Nearest: return VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    case SamplerMipmapMode::Linear: return VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    }
+    throw std::runtime_error("Unsupported SamplerMipmapMode.");
+}
+
+[[nodiscard]] inline VkSamplerAddressMode to_vk_sampler_address_mode(SamplerAddressMode mode)
+{
+    switch (mode)
+    {
+    case SamplerAddressMode::Repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    case SamplerAddressMode::ClampToEdge: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    }
+    throw std::runtime_error("Unsupported SamplerAddressMode.");
+}
+
+[[nodiscard]] inline VkBorderColor to_vk_sampler_border_color(SamplerBorderColor color)
+{
+    switch (color)
+    {
+    case SamplerBorderColor::FloatTransparentBlack: return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+    }
+    throw std::runtime_error("Unsupported SamplerBorderColor.");
+}
+
+[[nodiscard]] inline VkSamplerCreateInfo to_vk_sampler_create_info(const SamplerDesc& desc)
+{
+    VkSamplerCreateInfo info{};
+    info.sType                   = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    info.magFilter               = to_vk_sampler_filter(desc.mag_filter);
+    info.minFilter               = to_vk_sampler_filter(desc.min_filter);
+    info.mipmapMode              = to_vk_sampler_mipmap_mode(desc.mipmap_mode);
+    info.addressModeU            = to_vk_sampler_address_mode(desc.address_mode_u);
+    info.addressModeV            = to_vk_sampler_address_mode(desc.address_mode_v);
+    info.addressModeW            = to_vk_sampler_address_mode(desc.address_mode_w);
+    info.mipLodBias              = desc.mip_lod_bias;
+    info.anisotropyEnable        = desc.anisotropy_enable ? VK_TRUE : VK_FALSE;
+    info.maxAnisotropy           = desc.max_anisotropy;
+    info.compareEnable           = desc.compare_enable ? VK_TRUE : VK_FALSE;
+    info.compareOp               = to_vk_compare_op(desc.compare_op);
+    info.minLod                  = desc.min_lod;
+    info.maxLod                  = desc.max_lod;
+    info.borderColor             = to_vk_sampler_border_color(desc.border_color);
+    info.unnormalizedCoordinates = desc.unnormalized_coordinates ? VK_TRUE : VK_FALSE;
+    return info;
 }
 
 [[nodiscard]] inline VkSampleCountFlagBits to_vk_sample_count(SampleCount samples)

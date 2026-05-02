@@ -84,6 +84,39 @@ enum class ImageUsage : uint32_t
     HostTransfer           = 1u << 6,
 };
 
+enum class BufferUsage : uint32_t
+{
+    None                   = 0,
+    TransferSrc            = 1u << 0,
+    TransferDst            = 1u << 1,
+    Vertex                 = 1u << 2,
+    Index                  = 1u << 3,
+    Storage                = 1u << 4,
+    Uniform                = 1u << 5,
+    ShaderDeviceAddress    = 1u << 6,
+    AccelStructureBuildInput = 1u << 7,
+    AccelStructureStorage  = 1u << 8,
+    IndirectBuffer         = 1u << 9,
+    DescriptorHeap         = 1u << 10,
+};
+
+enum class MemoryUsage : uint8_t
+{
+    GpuOnly,
+    CpuToGpu,
+    GpuToCpu,
+    CpuOnly,
+    Auto,
+};
+
+enum class AllocFlags : uint32_t
+{
+    None                      = 0,
+    HostAccessSequentialWrite = 1u << 0,
+    HostAccessRandom          = 1u << 1,
+    Mapped                    = 1u << 2,
+};
+
 enum class SampleCount : uint8_t
 {
     Count1  = 1,
@@ -174,6 +207,9 @@ enum class CompareOp : uint8_t
 
 using ImageHandle     = uint64_t;
 using ImageViewHandle = uint64_t;
+using BufferHandle    = uint64_t;
+using SamplerHandle   = uint64_t;
+using AccelStructureHandle = uint64_t;
 
 template<typename Enum>
 struct EnableBitMaskOperators : std::false_type {};
@@ -185,10 +221,16 @@ template<>
 struct EnableBitMaskOperators<ImageUsage> : std::true_type {};
 
 template<>
+struct EnableBitMaskOperators<BufferUsage> : std::true_type {};
+
+template<>
 struct EnableBitMaskOperators<PipelineStage> : std::true_type {};
 
 template<>
 struct EnableBitMaskOperators<AccessFlags> : std::true_type {};
+
+template<>
+struct EnableBitMaskOperators<AllocFlags> : std::true_type {};
 
 template<typename Enum>
 constexpr bool kEnableBitMaskOperators = EnableBitMaskOperators<Enum>::value;

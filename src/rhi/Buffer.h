@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rhi/Types.h"
+
 #include <cstdint>
 #include <volk.h>
 
@@ -13,11 +15,11 @@ class Device;
 
 struct BufferDesc
 {
-    VkDeviceSize         size         = 0;
-    VkBufferUsageFlags   usage        = 0;
-    int                  memory_usage = 7;    // VMA_MEMORY_USAGE_AUTO
-    uint32_t             alloc_flags  = 0;    // VmaAllocationCreateFlags
-    const char*          debug_name   = nullptr;
+    uint64_t      size         = 0;
+    BufferUsage   usage        = BufferUsage::None;
+    MemoryUsage   memory_usage = MemoryUsage::Auto;
+    AllocFlags    alloc_flags  = AllocFlags::None;
+    const char*   debug_name   = nullptr;
 };
 
 // Thin RAII wrapper around a VkBuffer + VmaAllocation.
@@ -41,18 +43,18 @@ public:
     void* map(Device& device);
     void  unmap(Device& device);
 
-    [[nodiscard]] VkBuffer        handle()         const noexcept { return buffer_; }
-    [[nodiscard]] VkDeviceSize    size()            const noexcept { return size_; }
-    [[nodiscard]] VkDeviceAddress device_address()  const noexcept { return device_address_; }
-    [[nodiscard]] void*           mapped()          const noexcept { return mapped_; }
-    [[nodiscard]] bool            is_valid()        const noexcept { return buffer_ != VK_NULL_HANDLE; }
+    [[nodiscard]] BufferHandle handle() const noexcept { return to_handle(buffer_); }
+    [[nodiscard]] uint64_t     size() const noexcept { return size_; }
+    [[nodiscard]] uint64_t     device_address() const noexcept { return device_address_; }
+    [[nodiscard]] void*        mapped() const noexcept { return mapped_; }
+    [[nodiscard]] bool         is_valid() const noexcept { return buffer_ != VK_NULL_HANDLE; }
 
 private:
-    VkBuffer       buffer_         = VK_NULL_HANDLE;
-    VmaAllocation  allocation_     = nullptr;
-    VkDeviceSize   size_           = 0;
+    VkBuffer        buffer_         = VK_NULL_HANDLE;
+    VmaAllocation   allocation_     = nullptr;
+    uint64_t        size_           = 0;
     VkDeviceAddress device_address_ = 0;
-    void*          mapped_         = nullptr;
+    void*           mapped_         = nullptr;
 };
 
 } // namespace rr::rhi

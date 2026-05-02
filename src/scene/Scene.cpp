@@ -17,12 +17,6 @@
 #include <stdexcept>
 #include <utility>
 
-// VMA needed for VMA_ALLOCATION_CREATE_* flags in BufferDesc.alloc_flags.
-// We include only the config header (no implementation).
-#define VMA_STATIC_VULKAN_FUNCTIONS  0
-#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
-#include <vk_mem_alloc.h>
-
 namespace rr::scene
 {
 
@@ -267,17 +261,17 @@ void Scene::upload(rr::rhi::Device&           device,
     if (all_vertices_.empty())
         throw std::runtime_error("Scene::upload: no vertices.");
 
-    auto gpu_buf = [&](VkDeviceSize byte_size,
-                        VkBufferUsageFlags usage,
+    auto gpu_buf = [&](uint64_t byte_size,
+                        rr::rhi::BufferUsage usage,
                         const void* data,
                         const char* name) -> rr::rhi::Buffer
     {
         rr::rhi::BufferDesc desc{};
         desc.size        = byte_size;
-        desc.usage       = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        desc.memory_usage = 3;  // VMA_MEMORY_USAGE_CPU_TO_GPU
-        desc.alloc_flags  = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                            VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        desc.usage       = usage | rr::rhi::BufferUsage::ShaderDeviceAddress;
+        desc.memory_usage = rr::rhi::MemoryUsage::CpuToGpu;
+        desc.alloc_flags  = rr::rhi::AllocFlags::HostAccessSequentialWrite |
+                            rr::rhi::AllocFlags::Mapped;
         desc.debug_name   = name;
         rr::rhi::Buffer buf;
         buf.create(device, desc);
@@ -288,14 +282,14 @@ void Scene::upload(rr::rhi::Device&           device,
     // Vertex / index buffers
     vertex_buffer_ = gpu_buf(
         all_vertices_.size() * sizeof(GpuVertex),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+        rr::rhi::BufferUsage::Vertex | rr::rhi::BufferUsage::Storage |
+        rr::rhi::BufferUsage::AccelStructureBuildInput,
         all_vertices_.data(), "scene_vertices");
 
     index_buffer_ = gpu_buf(
         all_indices_.size() * sizeof(uint32_t),
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+        rr::rhi::BufferUsage::Index | rr::rhi::BufferUsage::Storage |
+        rr::rhi::BufferUsage::AccelStructureBuildInput,
         all_indices_.data(), "scene_indices");
 
     // Mesh descriptors
@@ -310,7 +304,7 @@ void Scene::upload(rr::rhi::Device&           device,
     }
     mesh_buffer_ = gpu_buf(
         gpu_meshes.size() * sizeof(GpuMesh),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        rr::rhi::BufferUsage::Storage,
         gpu_meshes.data(), "scene_meshes");
 
     // Material descriptors
@@ -337,7 +331,7 @@ void Scene::upload(rr::rhi::Device&           device,
     }
     material_buffer_ = gpu_buf(
         gpu_mats.size() * sizeof(GpuMaterial),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        rr::rhi::BufferUsage::Storage,
         gpu_mats.data(), "scene_materials");
 
     // Instance descriptors
@@ -352,7 +346,7 @@ void Scene::upload(rr::rhi::Device&           device,
     }
     instance_buffer_ = gpu_buf(
         gpu_insts.size() * sizeof(GpuInstance),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        rr::rhi::BufferUsage::Storage,
         gpu_insts.data(), "scene_instances");
 
     // Light descriptors
@@ -377,7 +371,7 @@ void Scene::upload(rr::rhi::Device&           device,
     {
         light_buffer_ = gpu_buf(
             gpu_lights.size() * sizeof(GpuLight),
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            rr::rhi::BufferUsage::Storage,
             gpu_lights.data(), "scene_lights");
     }
     else
@@ -385,7 +379,7 @@ void Scene::upload(rr::rhi::Device&           device,
         // Allocate a placeholder 1-element buffer so the SSBO index is valid.
         GpuLight dummy{};
         light_buffer_ = gpu_buf(sizeof(GpuLight),
-                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                 rr::rhi::BufferUsage::Storage,
                                  &dummy, "scene_lights_placeholder");
     }
 
@@ -393,11 +387,11 @@ void Scene::upload(rr::rhi::Device&           device,
     {
         rr::rhi::BufferDesc desc{};
         desc.size        = sizeof(GpuCameraData);
-        desc.usage       = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        desc.memory_usage = 3;
-        desc.alloc_flags  = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-                            VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        desc.usage       = rr::rhi::BufferUsage::Storage |
+                           rr::rhi::BufferUsage::ShaderDeviceAddress;
+        desc.memory_usage = rr::rhi::MemoryUsage::CpuToGpu;
+        desc.alloc_flags  = rr::rhi::AllocFlags::HostAccessSequentialWrite |
+                            rr::rhi::AllocFlags::Mapped;
         desc.debug_name   = "camera_data";
         camera_buffer_.create(device, desc);
     }
@@ -444,40 +438,34 @@ void Scene::upload(rr::rhi::Device&           device,
                 gpu_mats.size() * sizeof(GpuMaterial));
 
     // Register scene buffers with BindlessRegistry
-    handles_.vertex_buf_idx  = registry.register_buffer(device,
-        vertex_buffer_.device_address(), vertex_buffer_.size());
-    handles_.index_buf_idx   = registry.register_buffer(device,
-        index_buffer_.device_address(), index_buffer_.size());
-    handles_.mesh_buf_idx    = registry.register_buffer(device,
-        mesh_buffer_.device_address(), mesh_buffer_.size());
-    handles_.material_buf_idx = registry.register_buffer(device,
-        material_buffer_.device_address(), material_buffer_.size());
-    handles_.instance_buf_idx = registry.register_buffer(device,
-        instance_buffer_.device_address(), instance_buffer_.size());
-    handles_.light_buf_idx   = registry.register_buffer(device,
-        light_buffer_.device_address(), light_buffer_.size());
-    handles_.camera_buf_idx  = registry.register_buffer(device,
-        camera_buffer_.device_address(), camera_buffer_.size());
+    handles_.vertex_buf_idx   = registry.register_buffer(device, vertex_buffer_);
+    handles_.index_buf_idx    = registry.register_buffer(device, index_buffer_);
+    handles_.mesh_buf_idx     = registry.register_buffer(device, mesh_buffer_);
+    handles_.material_buf_idx = registry.register_buffer(device, material_buffer_);
+    handles_.instance_buf_idx = registry.register_buffer(device, instance_buffer_);
+    handles_.light_buf_idx    = registry.register_buffer(device, light_buffer_);
+    handles_.camera_buf_idx   = registry.register_buffer(device, camera_buffer_);
 
     // Build BLAS for each unique mesh (one-time GPU work).
     // We batch all builds in a single command buffer submission.
     std::vector<rr::rhi::Buffer> scratch_bufs(meshes_.size());
     blases_.resize(meshes_.size());
 
-    one_time_submit([&](VkCommandBuffer cmd)
+    one_time_submit([&](rr::rhi::CommandRecorder recorder)
     {
         for (size_t i = 0; i < meshes_.size(); ++i)
         {
             const Mesh& m = meshes_[i];
-            VkDeviceAddress vb_addr =
-                vertex_buffer_.device_address() + m.vertex_base * sizeof(GpuVertex);
-            VkDeviceAddress ib_addr =
-                index_buffer_.device_address() + m.index_byte_offset;
+            rr::rhi::BlasBuildInfo build_info{};
+            build_info.vertex_buffer = &vertex_buffer_;
+            build_info.vertex_offset = static_cast<uint64_t>(m.vertex_base) * sizeof(GpuVertex);
+            build_info.vertex_stride = sizeof(GpuVertex);
+            build_info.vertex_count  = m.vertex_count;
+            build_info.index_buffer  = &index_buffer_;
+            build_info.index_offset  = m.index_byte_offset;
+            build_info.index_count   = m.index_count;
             blases_[i] = rr::rhi::build_blas(
-                device, cmd,
-                vb_addr, sizeof(GpuVertex), m.vertex_count,
-                ib_addr, m.index_count,
-                false, scratch_bufs[i]);
+                device, recorder, build_info, scratch_bufs[i]);
         }
     });
 
@@ -486,7 +474,7 @@ void Scene::upload(rr::rhi::Device&           device,
         s.destroy(device);
 
     // Build TLAS
-    std::vector<VkAccelerationStructureInstanceKHR> tlas_insts;
+    std::vector<rr::rhi::TlasInstance> tlas_insts;
     tlas_insts.reserve(instances_.size());
     for (size_t i = 0; i < instances_.size(); ++i)
     {
@@ -501,23 +489,22 @@ void Scene::upload(rr::rhi::Device&           device,
         (void)m;
         tlas_insts.push_back(rr::rhi::make_tlas_instance(
             row_major,
-            blases_[inst.mesh_index].device_address(),
+            blases_[inst.mesh_index],
             static_cast<uint32_t>(i)));
     }
 
     rr::rhi::Buffer tlas_scratch;
     rr::rhi::Buffer tlas_instance_buf;
-    one_time_submit([&](VkCommandBuffer cmd)
+    one_time_submit([&](rr::rhi::CommandRecorder recorder)
     {
-        tlas_ = rr::rhi::build_tlas(device, cmd, tlas_insts, tlas_scratch, tlas_instance_buf);
+        tlas_ = rr::rhi::build_tlas(device, recorder, tlas_insts, tlas_scratch, tlas_instance_buf);
     });
     tlas_scratch.destroy(device);
     tlas_instance_buf.destroy(device);
     tlas_scratch_bytes_ = 0; // scratch was temporary
 
     // Register TLAS with BindlessRegistry
-    handles_.tlas_idx = registry.register_accel_struct(
-        device, tlas_.device_address(), tlas_.buffer().size());
+    handles_.tlas_idx = registry.register_accel_struct(device, tlas_);
 
     uploaded_ = true;
 

@@ -2,6 +2,7 @@
 
 #include "core/Log.h"
 #include "rhi/Device.h"
+#include "rhi/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -57,12 +58,12 @@ void Buffer::create(Device& device, const BufferDesc& desc)
     VkBufferCreateInfo buf_info{};
     buf_info.sType       = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buf_info.size        = desc.size;
-    buf_info.usage       = desc.usage;
+    buf_info.usage       = to_vk_buffer_usage(desc.usage);
     buf_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
     VmaAllocationCreateInfo alloc_info{};
-    alloc_info.usage = static_cast<VmaMemoryUsage>(desc.memory_usage);
-    alloc_info.flags = static_cast<VmaAllocationCreateFlags>(desc.alloc_flags);
+    alloc_info.usage = to_vma_memory_usage(desc.memory_usage);
+    alloc_info.flags = to_vma_allocation_flags(desc.alloc_flags);
 
     VmaAllocationInfo alloc_result{};
     if (vmaCreateBuffer(device.allocator(), &buf_info, &alloc_info,
@@ -75,7 +76,7 @@ void Buffer::create(Device& device, const BufferDesc& desc)
     mapped_ = alloc_result.pMappedData; // non-null if MAPPED_BIT was set
 
     // Obtain device address if requested.
-    if (desc.usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT)
+    if (has_any_flag(desc.usage, BufferUsage::ShaderDeviceAddress))
     {
         VkBufferDeviceAddressInfo addr_info{};
         addr_info.sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
@@ -88,7 +89,7 @@ void Buffer::create(Device& device, const BufferDesc& desc)
         VkDebugUtilsObjectNameInfoEXT name_info{};
         name_info.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
         name_info.objectType   = VK_OBJECT_TYPE_BUFFER;
-        name_info.objectHandle = reinterpret_cast<uint64_t>(buffer_);
+        name_info.objectHandle = handle();
         name_info.pObjectName  = desc.debug_name;
         vkSetDebugUtilsObjectNameEXT(device.device(), &name_info);
     }
