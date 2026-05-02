@@ -396,7 +396,7 @@ void Scene::upload(rr::rhi::Device&           device,
         camera_buffer_.create(device, desc);
     }
 
-    // Samplers — the BindlessRegistry creates and owns the VkSamplers.
+    // Samplers are created and owned by the BindlessRegistry.
     {
         handles_.linear_sampler_idx  = registry.register_sampler(device, rr::rhi::Sampler::linear_repeat());
         handles_.nearest_sampler_idx = registry.register_sampler(device, rr::rhi::Sampler::nearest_clamp());
