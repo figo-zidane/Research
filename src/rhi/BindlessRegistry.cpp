@@ -2,6 +2,7 @@
 
 #include "core/Log.h"
 #include "rhi/Device.h"
+#include "rhi/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -153,11 +154,11 @@ void BindlessRegistry::write_resource(Device&                            device,
 }
 
 uint32_t BindlessRegistry::register_texture(Device&            device,
-                                             VkImage            image,
-                                             VkFormat           format,
-                                             VkImageLayout      layout,
-                                             VkImageAspectFlags aspect,
-                                             VkImageViewType    view_type)
+                                             const Image&       image,
+                                             Format             format,
+                                             ImageLayout        layout,
+                                             ImageAspect        aspect,
+                                             ImageViewType      view_type)
 {
     if (next_texture_ >= kMaxTextures)
     {
@@ -166,15 +167,15 @@ uint32_t BindlessRegistry::register_texture(Device&            device,
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image    = image;
-    view_ci.viewType = view_type;
-    view_ci.format   = format;
-    view_ci.subresourceRange = {aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+    view_ci.image    = image.handle();
+    view_ci.viewType = to_vk_image_view_type(view_type);
+    view_ci.format   = to_vk_format(format);
+    view_ci.subresourceRange = {to_vk_image_aspect(aspect), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 
     VkImageDescriptorInfoEXT img_info{};
     img_info.sType  = VK_STRUCTURE_TYPE_IMAGE_DESCRIPTOR_INFO_EXT;
     img_info.pView  = &view_ci;
-    img_info.layout = layout;
+    img_info.layout = to_vk_image_layout(layout);
 
     VkResourceDescriptorInfoEXT res_info{};
     res_info.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT;
@@ -187,9 +188,9 @@ uint32_t BindlessRegistry::register_texture(Device&            device,
 }
 
 uint32_t BindlessRegistry::register_storage_image(Device&         device,
-                                                    VkImage         image,
-                                                    VkFormat        format,
-                                                    VkImageViewType view_type)
+                                                    const Image&     image,
+                                                    Format           format,
+                                                    ImageViewType    view_type)
 {
     if (next_storage_ >= kMaxStorageImages)
     {
@@ -198,9 +199,9 @@ uint32_t BindlessRegistry::register_storage_image(Device&         device,
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image    = image;
-    view_ci.viewType = view_type;
-    view_ci.format   = format;
+    view_ci.image    = image.handle();
+    view_ci.viewType = to_vk_image_view_type(view_type);
+    view_ci.format   = to_vk_format(format);
     view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 
     VkImageDescriptorInfoEXT img_info{};

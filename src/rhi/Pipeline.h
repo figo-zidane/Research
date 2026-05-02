@@ -5,6 +5,8 @@
 #include <vector>
 #include <volk.h>
 
+#include "rhi/Types.h"
+
 namespace rr::rhi
 {
 class Device;
@@ -65,15 +67,15 @@ struct GraphicsPipelineDesc
     uint32_t                        frag_entry      = 1;
     const BindlessRegistry*         registry        = nullptr;
     // Render attachments
-    std::vector<VkFormat>           color_formats;
-    VkFormat                        depth_format    = VK_FORMAT_UNDEFINED;
+    std::vector<Format>             color_formats;
+    Format                          depth_format    = Format::Undefined;
     // Rasterization
-    VkCullModeFlags                 cull_mode       = VK_CULL_MODE_BACK_BIT;
-    VkFrontFace                     front_face      = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    VkPrimitiveTopology             topology        = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    CullMode                        cull_mode       = CullMode::Back;
+    FrontFace                       front_face      = FrontFace::CounterClockwise;
+    PrimitiveTopology               topology        = PrimitiveTopology::TriangleList;
     bool                            depth_test      = true;
     bool                            depth_write     = true;
-    VkCompareOp                     depth_compare   = VK_COMPARE_OP_LESS;
+    CompareOp                       depth_compare   = CompareOp::Less;
     // No vertex input — all meshes are pulled via buffer device address.
     const char*                     debug_name      = nullptr;
 };

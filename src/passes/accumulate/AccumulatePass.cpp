@@ -102,20 +102,20 @@ void AccumulatePass::create_images(rr::rhi::Device& device,
                                      rr::rhi::Extent2D ext)
 {
     rr::rhi::ImageDesc d{};
-    d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+    d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
     d.extent     = {ext.width, ext.height, 1};
-    d.usage      = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
-                 | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;  // required for screenshot readback
+    d.usage      = rr::rhi::ImageUsage::Storage | rr::rhi::ImageUsage::Sampled
+                 | rr::rhi::ImageUsage::TransferSrc;  // required for screenshot readback
     d.debug_name = "accumulated_image";
     accumulated_img_.create(device, d);
 
     accumulated_storage_idx = registry.register_storage_image(
-        device, accumulated_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+        device, accumulated_img_, rr::rhi::Format::R32G32B32A32_Sfloat);
     accumulated_texture_idx = registry.register_texture(
-        device, accumulated_img_.handle(),
-        VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_ASPECT_COLOR_BIT);
+        device, accumulated_img_,
+        rr::rhi::Format::R32G32B32A32_Sfloat,
+        rr::rhi::ImageLayout::ShaderReadOnly,
+        rr::rhi::ImageAspect::Color);
 }
 
 void AccumulatePass::destroy_images(rr::rhi::Device& device)
@@ -154,7 +154,7 @@ rr::render::RenderPass::Reflection AccumulatePass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"accumulated_image", ResourceDesc::Kind::Texture,
-                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
+                          rr::rhi::Format::R32G32B32A32_Sfloat, extent_});
     return r;
 }
 

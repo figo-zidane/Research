@@ -414,16 +414,16 @@ void Scene::upload(rr::rhi::Device&           device,
     {
         auto& img_data = images_[i];
         rr::rhi::ImageDesc desc{};
-        desc.format  = VK_FORMAT_R8G8B8A8_SRGB;
+        desc.format  = rr::rhi::Format::R8G8B8A8_Srgb;
         desc.extent  = {img_data.width, img_data.height, 1};
-        desc.usage   = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+        desc.usage   = rr::rhi::ImageUsage::Sampled | rr::rhi::ImageUsage::HostTransfer;
         desc.debug_name = img_data.name.c_str();
         textures_[i].create(device, desc);
         textures_[i].upload_host(
             device,
             img_data.pixels.data(),
             img_data.pixels.size(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            rr::rhi::ImageLayout::ShaderReadOnly);
     }
 
     // Update material texture indices now that images are registered.
@@ -435,10 +435,10 @@ void Scene::upload(rr::rhi::Device&           device,
         if (src.albedo_image_idx >= 0)
             dst.albedo_tex_idx = registry.register_texture(
                 device,
-                textures_[src.albedo_image_idx].handle(),
-                VK_FORMAT_R8G8B8A8_SRGB,
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                VK_IMAGE_ASPECT_COLOR_BIT);
+                textures_[src.albedo_image_idx],
+                rr::rhi::Format::R8G8B8A8_Srgb,
+                rr::rhi::ImageLayout::ShaderReadOnly,
+                rr::rhi::ImageAspect::Color);
     }
     std::memcpy(material_buffer_.mapped(), gpu_mats.data(),
                 gpu_mats.size() * sizeof(GpuMaterial));

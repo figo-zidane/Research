@@ -74,54 +74,54 @@ void GBufferPass::create_images(rr::rhi::Device& device,
                                   rr::rhi::BindlessRegistry& registry,
                                   rr::rhi::Extent2D ext)
 {
-    const VkExtent3D e3{ext.width, ext.height, 1};
-    const VkImageUsageFlags storage_usage =
-        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-        VK_IMAGE_USAGE_STORAGE_BIT          |
-        VK_IMAGE_USAGE_SAMPLED_BIT;
+    const rr::rhi::Extent3D e3{ext.width, ext.height, 1};
+    const rr::rhi::ImageUsage storage_usage =
+        rr::rhi::ImageUsage::ColorAttachment |
+        rr::rhi::ImageUsage::Storage         |
+        rr::rhi::ImageUsage::Sampled;
 
     // World-space position (32F to avoid precision loss at mm scale)
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+        d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
         d.extent     = e3;
         d.usage      = storage_usage;
         d.debug_name = "gbuffer_position";
         position_img_.create(device, d);
         position_storage_idx = registry.register_storage_image(
-            device, position_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+            device, position_img_, rr::rhi::Format::R32G32B32A32_Sfloat);
     }
     // World-space normal + material_id packed in .w as asfloat(material_id).
     // 32F required: material_id values produce denorm floats that 16F flushes to 0.
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+        d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
         d.extent     = e3;
         d.usage      = storage_usage;
         d.debug_name = "gbuffer_normal";
         normal_img_.create(device, d);
         normal_storage_idx = registry.register_storage_image(
-            device, normal_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+            device, normal_img_, rr::rhi::Format::R32G32B32A32_Sfloat);
     }
     // Material ID (R32_UINT as RGBA8 is not supported for storage everywhere)
     // Use R32_UINT for storage + sampled.
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R32_UINT;
+        d.format     = rr::rhi::Format::R32_Uint;
         d.extent     = e3;
-        d.usage      = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+        d.usage      = rr::rhi::ImageUsage::ColorAttachment | rr::rhi::ImageUsage::Storage;
         d.debug_name = "gbuffer_material_id";
         material_id_img_.create(device, d);
         material_id_storage_idx = registry.register_storage_image(
-            device, material_id_img_.handle(), VK_FORMAT_R32_UINT);
+            device, material_id_img_, rr::rhi::Format::R32_Uint);
     }
     // Depth
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_D32_SFLOAT;
+        d.format     = rr::rhi::Format::D32_Sfloat;
         d.extent     = e3;
-        d.usage      = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        d.aspect     = VK_IMAGE_ASPECT_DEPTH_BIT;
+        d.usage      = rr::rhi::ImageUsage::DepthStencilAttachment | rr::rhi::ImageUsage::Sampled;
+        d.aspect     = rr::rhi::ImageAspect::Depth;
         d.debug_name = "gbuffer_depth";
         depth_img_.create(device, d);
     }
@@ -145,15 +145,15 @@ void GBufferPass::create_pipeline(rr::rhi::Device& device,
     desc.frag_entry   = 1;
     desc.registry     = &registry;
     desc.color_formats = {
-        VK_FORMAT_R32G32B32A32_SFLOAT,  // position (32F for sub-mm precision)
-        VK_FORMAT_R32G32B32A32_SFLOAT,  // normal + material_id packed in .w
-        VK_FORMAT_R32_UINT              // material id
+        rr::rhi::Format::R32G32B32A32_Sfloat,  // position (32F for sub-mm precision)
+        rr::rhi::Format::R32G32B32A32_Sfloat,  // normal + material_id packed in .w
+        rr::rhi::Format::R32_Uint              // material id
     };
-    desc.depth_format  = VK_FORMAT_D32_SFLOAT;
+    desc.depth_format  = rr::rhi::Format::D32_Sfloat;
     desc.depth_test    = true;
     desc.depth_write   = true;
-    desc.depth_compare = VK_COMPARE_OP_LESS;
-    desc.cull_mode     = VK_CULL_MODE_BACK_BIT;
+    desc.depth_compare = rr::rhi::CompareOp::Less;
+    desc.cull_mode     = rr::rhi::CullMode::Back;
     desc.debug_name    = "gbuffer_pipeline";
     pipeline_.create(device, desc);
 }
@@ -197,11 +197,11 @@ rr::render::RenderPass::Reflection GBufferPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"gbuffer_position",    ResourceDesc::Kind::Texture,
-                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
+                          rr::rhi::Format::R32G32B32A32_Sfloat, extent_});
     r.outputs.push_back({"gbuffer_normal",      ResourceDesc::Kind::Texture,
-                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
+                          rr::rhi::Format::R32G32B32A32_Sfloat, extent_});
     r.outputs.push_back({"gbuffer_material_id", ResourceDesc::Kind::Texture,
-                          static_cast<rr::rhi::Format>(VK_FORMAT_R32_UINT), extent_});
+                          rr::rhi::Format::R32_Uint, extent_});
     return r;
 }
 

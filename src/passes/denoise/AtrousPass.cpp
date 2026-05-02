@@ -149,21 +149,21 @@ void AtrousPass::create_images(rr::rhi::Device& device,
     for (size_t index = 0; index < ping_images_.size(); ++index)
     {
         rr::rhi::ImageDesc desc{};
-        desc.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+        desc.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
         desc.extent     = {extent.width, extent.height, 1};
-        desc.usage      = VK_IMAGE_USAGE_STORAGE_BIT
-                        | VK_IMAGE_USAGE_SAMPLED_BIT
-                        | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        desc.usage      = rr::rhi::ImageUsage::Storage
+                        | rr::rhi::ImageUsage::Sampled
+                        | rr::rhi::ImageUsage::TransferSrc;
         desc.debug_name = (index == 0) ? "atrous_ping_a" : "atrous_ping_b";
         ping_images_[index].create(device, desc);
 
         storage_indices_[index] = registry.register_storage_image(
-            device, ping_images_[index].handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+            device, ping_images_[index], rr::rhi::Format::R32G32B32A32_Sfloat);
         texture_indices_[index] = registry.register_texture(
-            device, ping_images_[index].handle(),
-            VK_FORMAT_R32G32B32A32_SFLOAT,
-            VK_IMAGE_LAYOUT_GENERAL,
-            VK_IMAGE_ASPECT_COLOR_BIT);
+            device, ping_images_[index],
+            rr::rhi::Format::R32G32B32A32_Sfloat,
+            rr::rhi::ImageLayout::General,
+            rr::rhi::ImageAspect::Color);
     }
 }
 
@@ -217,7 +217,7 @@ rr::render::RenderPass::Reflection AtrousPass::reflect() const
     reflection.outputs.push_back({
         "atrous_output",
         ResourceDesc::Kind::Texture,
-        static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT),
+        rr::rhi::Format::R32G32B32A32_Sfloat,
         extent_});
     return reflection;
 }

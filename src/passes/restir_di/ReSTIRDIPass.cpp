@@ -191,12 +191,12 @@ void ReSTIRDIPass::create_images(rr::rhi::Device& device,
     auto make_storage = [&](rr::rhi::Image& img, const char* name) -> uint32_t
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+        d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
         d.extent     = {ext.width, ext.height, 1};
-        d.usage      = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        d.usage      = rr::rhi::ImageUsage::Storage | rr::rhi::ImageUsage::TransferSrc;
         d.debug_name = name;
         img.create(device, d);
-        return registry.register_storage_image(device, img.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+        return registry.register_storage_image(device, img, rr::rhi::Format::R32G32B32A32_Sfloat);
     };
 
     reservoir_idx_[0] = make_storage(reservoir_[0], "restir_reservoir_A");
@@ -205,23 +205,23 @@ void ReSTIRDIPass::create_images(rr::rhi::Device& device,
     // Output: storage for shader writes + sampled texture for TonemapPass
     {
         rr::rhi::ImageDesc d{};
-        d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+        d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
         d.extent     = {ext.width, ext.height, 1};
-        d.usage      = VK_IMAGE_USAGE_STORAGE_BIT
-                     | VK_IMAGE_USAGE_SAMPLED_BIT
-                     | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        d.usage      = rr::rhi::ImageUsage::Storage
+                     | rr::rhi::ImageUsage::Sampled
+                     | rr::rhi::ImageUsage::TransferSrc;
         d.debug_name = "restir_output";
         output_img_.create(device, d);
     }
     output_storage_idx = registry.register_storage_image(
-        device, output_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+        device, output_img_, rr::rhi::Format::R32G32B32A32_Sfloat);
     // BUG-2 (Option A): register as GENERAL — the image stays in GENERAL
     // layout throughout the frame, so the descriptor layout must match.
     output_texture_idx = registry.register_texture(
-        device, output_img_.handle(),
-        VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_ASPECT_COLOR_BIT);
+        device, output_img_,
+        rr::rhi::Format::R32G32B32A32_Sfloat,
+        rr::rhi::ImageLayout::General,
+        rr::rhi::ImageAspect::Color);
 }
 
 void ReSTIRDIPass::destroy_images(rr::rhi::Device& device)
@@ -274,7 +274,7 @@ rr::render::RenderPass::Reflection ReSTIRDIPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"restir_di_output", ResourceDesc::Kind::Texture,
-                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
+                          rr::rhi::Format::R32G32B32A32_Sfloat, extent_});
     return r;
 }
 

@@ -112,19 +112,19 @@ void PathTracerPass::create_images(rr::rhi::Device& device,
                                      rr::rhi::Extent2D ext)
 {
     rr::rhi::ImageDesc d{};
-    d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+    d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
     d.extent     = {ext.width, ext.height, 1};
-    d.usage      = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    d.usage      = rr::rhi::ImageUsage::Storage | rr::rhi::ImageUsage::Sampled;
     d.debug_name = "radiance_image";
     radiance_img_.create(device, d);
 
     radiance_storage_idx = registry.register_storage_image(
-        device, radiance_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+        device, radiance_img_, rr::rhi::Format::R32G32B32A32_Sfloat);
     radiance_texture_idx = registry.register_texture(
-        device, radiance_img_.handle(),
-        VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_ASPECT_COLOR_BIT);
+        device, radiance_img_,
+        rr::rhi::Format::R32G32B32A32_Sfloat,
+        rr::rhi::ImageLayout::General,
+        rr::rhi::ImageAspect::Color);
 }
 
 void PathTracerPass::destroy_images(rr::rhi::Device& device)
@@ -156,7 +156,7 @@ rr::render::RenderPass::Reflection PathTracerPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"radiance_image", ResourceDesc::Kind::Texture,
-                          static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
+                          rr::rhi::Format::R32G32B32A32_Sfloat, extent_});
     return r;
 }
 

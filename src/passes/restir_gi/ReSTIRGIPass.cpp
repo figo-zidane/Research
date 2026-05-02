@@ -221,14 +221,14 @@ void ReSTIRGIPass::create_images(rr::rhi::Device& device,
     auto make_storage = [&](rr::rhi::Image& image, const char* name) -> uint32_t
     {
         rr::rhi::ImageDesc desc{};
-        desc.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+        desc.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
         desc.extent     = {ext.width, ext.height, 1};
-        desc.usage      = VK_IMAGE_USAGE_STORAGE_BIT
-                        | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-                        | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        desc.usage      = rr::rhi::ImageUsage::Storage
+                        | rr::rhi::ImageUsage::TransferSrc
+                        | rr::rhi::ImageUsage::TransferDst;
         desc.debug_name = name;
         image.create(device, desc);
-        return registry.register_storage_image(device, image.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+        return registry.register_storage_image(device, image, rr::rhi::Format::R32G32B32A32_Sfloat);
     };
 
     reservoir_pos_idx_[0]  = make_storage(reservoir_pos_[0], "restir_gi_reservoir_pos_A");
@@ -243,21 +243,21 @@ void ReSTIRGIPass::create_images(rr::rhi::Device& device,
     history_primary_norm_idx_[1] = make_storage(history_primary_norm_[1], "restir_gi_history_primary_norm_B");
 
     rr::rhi::ImageDesc d{};
-    d.format     = VK_FORMAT_R32G32B32A32_SFLOAT;
+    d.format     = rr::rhi::Format::R32G32B32A32_Sfloat;
     d.extent     = {ext.width, ext.height, 1};
-    d.usage      = VK_IMAGE_USAGE_STORAGE_BIT
-                 | VK_IMAGE_USAGE_SAMPLED_BIT
-                 | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    d.usage      = rr::rhi::ImageUsage::Storage
+                 | rr::rhi::ImageUsage::Sampled
+                 | rr::rhi::ImageUsage::TransferSrc;
     d.debug_name = "restir_gi_output";
     output_img_.create(device, d);
 
     output_storage_idx = registry.register_storage_image(
-        device, output_img_.handle(), VK_FORMAT_R32G32B32A32_SFLOAT);
+        device, output_img_, rr::rhi::Format::R32G32B32A32_Sfloat);
     output_texture_idx = registry.register_texture(
-        device, output_img_.handle(),
-        VK_FORMAT_R32G32B32A32_SFLOAT,
-        VK_IMAGE_LAYOUT_GENERAL,
-        VK_IMAGE_ASPECT_COLOR_BIT);
+        device, output_img_,
+        rr::rhi::Format::R32G32B32A32_Sfloat,
+        rr::rhi::ImageLayout::General,
+        rr::rhi::ImageAspect::Color);
 }
 
 void ReSTIRGIPass::destroy_images(rr::rhi::Device& device)
@@ -311,7 +311,7 @@ rr::render::RenderPass::Reflection ReSTIRGIPass::reflect() const
 {
     Reflection r;
     r.outputs.push_back({"restir_gi_output", ResourceDesc::Kind::Texture,
-                         static_cast<rr::rhi::Format>(VK_FORMAT_R32G32B32A32_SFLOAT), extent_});
+                         rr::rhi::Format::R32G32B32A32_Sfloat, extent_});
     return r;
 }
 

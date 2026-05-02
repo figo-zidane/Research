@@ -13,17 +13,17 @@ class Device;
 
 struct ImageDesc
 {
-    VkFormat               format       = VK_FORMAT_UNDEFINED;
-    VkExtent3D             extent       = {1, 1, 1};
-    VkImageUsageFlags      usage        = 0;
-    VkImageType            type         = VK_IMAGE_TYPE_2D;
-    VkImageAspectFlags     aspect       = VK_IMAGE_ASPECT_COLOR_BIT;
-    uint32_t               mip_levels   = 1;
-    uint32_t               array_layers = 1;
-    VkSampleCountFlagBits  samples      = VK_SAMPLE_COUNT_1_BIT;
-    int                    memory_usage = 7; // VMA_MEMORY_USAGE_AUTO
-    int                    alloc_flags  = 0; // VmaAllocationCreateFlags
-    const char*            debug_name   = nullptr;
+    Format      format       = Format::Undefined;
+    Extent3D    extent       = {1, 1, 1};
+    ImageUsage  usage        = ImageUsage::None;
+    ImageType   type         = ImageType::Image2D;
+    ImageAspect aspect       = ImageAspect::Color;
+    uint32_t    mip_levels   = 1;
+    uint32_t    array_layers = 1;
+    SampleCount samples      = SampleCount::Count1;
+    int         memory_usage = 7; // VMA_MEMORY_USAGE_AUTO
+    int         alloc_flags  = 0; // VmaAllocationCreateFlags
+    const char* debug_name   = nullptr;
 };
 
 // Thin RAII wrapper around a VkImage + VkImageView + VmaAllocation.
@@ -48,14 +48,14 @@ public:
     void upload_host(Device& device,
                      const void* data,
                      VkDeviceSize data_size,
-                     VkImageLayout final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                     ImageLayout final_layout = ImageLayout::ShaderReadOnly);
 
     [[nodiscard]] VkImage            handle()   const noexcept { return image_; }
     [[nodiscard]] VkImageView        view()     const noexcept { return view_; }
-    [[nodiscard]] VkFormat           format()   const noexcept { return format_; }
-    [[nodiscard]] VkExtent3D         extent3d() const noexcept { return extent_; }
+    [[nodiscard]] Format             format()   const noexcept { return format_; }
+    [[nodiscard]] Extent3D           extent3d() const noexcept { return extent_; }
     [[nodiscard]] rr::rhi::Extent2D  extent2d() const noexcept { return {extent_.width, extent_.height}; }
-    [[nodiscard]] VkImageAspectFlags aspect()   const noexcept { return aspect_; }
+    [[nodiscard]] ImageAspect        aspect()   const noexcept { return aspect_; }
     [[nodiscard]] uint32_t           mip_levels()   const noexcept { return mip_levels_; }
     [[nodiscard]] uint32_t           array_layers() const noexcept { return array_layers_; }
     [[nodiscard]] bool               is_valid() const noexcept { return image_ != VK_NULL_HANDLE; }
@@ -64,9 +64,9 @@ private:
     VkImage            image_        = VK_NULL_HANDLE;
     VkImageView        view_         = VK_NULL_HANDLE;
     VmaAllocation      allocation_   = nullptr;
-    VkFormat           format_       = VK_FORMAT_UNDEFINED;
-    VkExtent3D         extent_       = {};
-    VkImageAspectFlags aspect_       = VK_IMAGE_ASPECT_COLOR_BIT;
+    Format             format_       = Format::Undefined;
+    Extent3D           extent_       = {};
+    ImageAspect        aspect_       = ImageAspect::Color;
     uint32_t           mip_levels_   = 1;
     uint32_t           array_layers_ = 1;
 };

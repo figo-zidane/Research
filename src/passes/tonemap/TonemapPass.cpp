@@ -80,11 +80,11 @@ bool TonemapPass::reload_shader(rr::shader::SlangSession& session)
     desc.vert_entry    = 0;
     desc.frag_entry    = 1;
     desc.registry      = registry_;
-    desc.color_formats = {static_cast<VkFormat>(swapchain_format_)};
+    desc.color_formats = {swapchain_format_};
     desc.depth_test    = false;
     desc.depth_write   = false;
-    desc.cull_mode     = VK_CULL_MODE_NONE;
-    desc.topology      = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    desc.cull_mode     = rr::rhi::CullMode::None;
+    desc.topology      = rr::rhi::PrimitiveTopology::TriangleList;
     desc.debug_name    = "tonemap_pipeline";
     try
     {
@@ -113,12 +113,12 @@ void TonemapPass::create_pipeline(rr::rhi::Device& device,
     desc.vert_entry    = 0;
     desc.frag_entry    = 1;
     desc.registry      = &registry;
-    desc.color_formats = {static_cast<VkFormat>(swapchain_format_)};
+    desc.color_formats = {swapchain_format_};
     // No depth
     desc.depth_test    = false;
     desc.depth_write   = false;
-    desc.cull_mode     = VK_CULL_MODE_NONE;
-    desc.topology      = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    desc.cull_mode     = rr::rhi::CullMode::None;
+    desc.topology      = rr::rhi::PrimitiveTopology::TriangleList;
     desc.debug_name    = "tonemap_pipeline";
     pipeline_.create(device, desc);
 }

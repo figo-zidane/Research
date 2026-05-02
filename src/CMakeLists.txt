@@ -16,6 +16,7 @@ add_library(rhi STATIC
   rhi/Swapchain.cpp
   rhi/Frame.cpp
   rhi/CommandBuffer.cpp
+  rhi/CommandRecorder.cpp
   rhi/Buffer.cpp
   rhi/Image.cpp
   rhi/Sampler.cpp

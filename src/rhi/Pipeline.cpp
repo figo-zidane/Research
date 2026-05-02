@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "rhi/BindlessRegistry.h"
 #include "rhi/Device.h"
+#include "rhi/VulkanTypeCasts.h"
 #include "shader/ShaderModule.h"
 #include "shader/ShaderReflection.h"
 
@@ -282,7 +283,7 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
 
     VkPipelineInputAssemblyStateCreateInfo ia{};
     ia.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    ia.topology = desc.topology;
+    ia.topology = to_vk_primitive_topology(desc.topology);
 
     VkPipelineViewportStateCreateInfo vp{};
     vp.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -292,8 +293,8 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
     VkPipelineRasterizationStateCreateInfo rs{};
     rs.sType       = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rs.polygonMode = VK_POLYGON_MODE_FILL;
-    rs.cullMode    = desc.cull_mode;
-    rs.frontFace   = desc.front_face;
+    rs.cullMode    = to_vk_cull_mode(desc.cull_mode);
+    rs.frontFace   = to_vk_front_face(desc.front_face);
     rs.lineWidth   = 1.0f;
 
     VkPipelineMultisampleStateCreateInfo ms{};
@@ -304,7 +305,7 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
     ds.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     ds.depthTestEnable  = desc.depth_test  ? VK_TRUE : VK_FALSE;
     ds.depthWriteEnable = desc.depth_write ? VK_TRUE : VK_FALSE;
-    ds.depthCompareOp   = desc.depth_compare;
+    ds.depthCompareOp   = to_vk_compare_op(desc.depth_compare);
 
     // Default: opaque, no blending for all colour attachments.
     std::vector<VkPipelineColorBlendAttachmentState> blend_attachments(
@@ -328,11 +329,18 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
     dyn.pDynamicStates    = dynamic_states;
 
     // Dynamic rendering (no VkRenderPass needed).
+    std::vector<VkFormat> color_formats;
+    color_formats.reserve(desc.color_formats.size());
+    for (Format format : desc.color_formats)
+    {
+        color_formats.push_back(to_vk_format(format));
+    }
+
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType                   = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount    = static_cast<uint32_t>(desc.color_formats.size());
-    rendering_info.pColorAttachmentFormats = desc.color_formats.data();
-    rendering_info.depthAttachmentFormat   = desc.depth_format;
+    rendering_info.colorAttachmentCount    = static_cast<uint32_t>(color_formats.size());
+    rendering_info.pColorAttachmentFormats = color_formats.data();
+    rendering_info.depthAttachmentFormat   = to_vk_format(desc.depth_format);
 
     // flags2 leads the pNext chain so the driver sees it before rendering_info.
     VkPipelineCreateFlags2CreateInfo gfx_flags2{};

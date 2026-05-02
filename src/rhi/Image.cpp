@@ -2,6 +2,7 @@
 
 #include "core/Log.h"
 #include "rhi/Device.h"
+#include "rhi/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -27,7 +28,7 @@ Image::Image(Image&& other) noexcept
     other.image_       = VK_NULL_HANDLE;
     other.view_        = VK_NULL_HANDLE;
     other.allocation_  = nullptr;
-    other.format_      = VK_FORMAT_UNDEFINED;
+    other.format_      = Format::Undefined;
     other.extent_      = {};
     other.mip_levels_  = 1;
     other.array_layers_= 1;
@@ -48,7 +49,7 @@ Image& Image::operator=(Image&& other) noexcept
         other.image_       = VK_NULL_HANDLE;
         other.view_        = VK_NULL_HANDLE;
         other.allocation_  = nullptr;
-        other.format_      = VK_FORMAT_UNDEFINED;
+        other.format_      = Format::Undefined;
         other.extent_      = {};
         other.mip_levels_  = 1;
         other.array_layers_= 1;
@@ -65,14 +66,14 @@ void Image::create(Device& device, const ImageDesc& desc)
 
     VkImageCreateInfo img_info{};
     img_info.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    img_info.imageType     = desc.type;
-    img_info.format        = desc.format;
-    img_info.extent        = desc.extent;
+    img_info.imageType     = to_vk_image_type(desc.type);
+    img_info.format        = to_vk_format(desc.format);
+    img_info.extent        = to_vk_extent3d(desc.extent);
     img_info.mipLevels     = desc.mip_levels;
     img_info.arrayLayers   = desc.array_layers;
-    img_info.samples       = desc.samples;
+    img_info.samples       = to_vk_sample_count(desc.samples);
     img_info.tiling        = VK_IMAGE_TILING_OPTIMAL;
-    img_info.usage         = desc.usage;
+    img_info.usage         = to_vk_image_usage(desc.usage);
     img_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -97,11 +98,11 @@ void Image::create(Device& device, const ImageDesc& desc)
     VkImageViewCreateInfo view_info{};
     view_info.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image    = image_;
-    view_info.viewType = (desc.array_layers > 1)
-                             ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
-                             : VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format   = desc.format;
-    view_info.subresourceRange.aspectMask     = desc.aspect;
+    view_info.viewType = (desc.type == ImageType::Image3D)
+                             ? VK_IMAGE_VIEW_TYPE_3D
+                             : (desc.array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D);
+    view_info.format   = to_vk_format(desc.format);
+    view_info.subresourceRange.aspectMask     = to_vk_image_aspect(desc.aspect);
     view_info.subresourceRange.baseMipLevel   = 0;
     view_info.subresourceRange.levelCount     = desc.mip_levels;
     view_info.subresourceRange.baseArrayLayer = 0;
@@ -151,7 +152,7 @@ void Image::destroy(Device& device)
 void Image::upload_host(Device& device,
                         const void*   data,
                         VkDeviceSize  data_size,
-                        VkImageLayout final_layout)
+                        ImageLayout final_layout)
 {
     // Use hostImageCopy (Vulkan 1.4 / VK_EXT_host_image_copy) to upload
     // pixel data directly without a staging buffer.
@@ -167,7 +168,7 @@ void Image::upload_host(Device& device,
         transition.image            = image_;
         transition.oldLayout        = VK_IMAGE_LAYOUT_UNDEFINED;
         transition.newLayout        = VK_IMAGE_LAYOUT_GENERAL;
-        transition.subresourceRange = {aspect_, 0, mip_levels_, 0, array_layers_};
+        transition.subresourceRange = {to_vk_image_aspect(aspect_), 0, mip_levels_, 0, array_layers_};
 
         if (vkTransitionImageLayout(device.device(), 1, &transition) != VK_SUCCESS)
         {
@@ -182,9 +183,12 @@ void Image::upload_host(Device& device,
         copy.pHostPointer      = data;
         copy.memoryRowLength   = 0; // tightly packed
         copy.memoryImageHeight = 0;
-        copy.imageSubresource  = {aspect_, 0, 0, array_layers_};
+        copy.imageSubresource.mipLevel = 0;
+        copy.imageSubresource.baseArrayLayer = 0;
+        copy.imageSubresource.layerCount = array_layers_;
         copy.imageOffset       = {0, 0, 0};
-        copy.imageExtent       = extent_;
+        copy.imageSubresource.aspectMask = to_vk_image_aspect(aspect_);
+        copy.imageExtent       = to_vk_extent3d(extent_);
 
         VkCopyMemoryToImageInfo copy_info{};
         copy_info.sType          = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO;
@@ -205,8 +209,8 @@ void Image::upload_host(Device& device,
         transition.sType            = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
         transition.image            = image_;
         transition.oldLayout        = VK_IMAGE_LAYOUT_GENERAL;
-        transition.newLayout        = final_layout;
-        transition.subresourceRange = {aspect_, 0, mip_levels_, 0, array_layers_};
+        transition.newLayout        = to_vk_image_layout(final_layout);
+        transition.subresourceRange = {to_vk_image_aspect(aspect_), 0, mip_levels_, 0, array_layers_};
 
         if (vkTransitionImageLayout(device.device(), 1, &transition) != VK_SUCCESS)
         {

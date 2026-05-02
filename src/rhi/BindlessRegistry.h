@@ -1,6 +1,7 @@
 #pragma once
 
 #include "rhi/Buffer.h"
+#include "rhi/Image.h"
 
 #include <cstdint>
 #include <volk.h>
@@ -56,18 +57,18 @@ public:
     // Register a sampled texture (VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).
     // Returns the gTextures[] index.
     uint32_t register_texture(Device&            device,
-                              VkImage            image,
-                              VkFormat           format,
-                              VkImageLayout      layout,
-                              VkImageAspectFlags aspect,
-                              VkImageViewType    view_type = VK_IMAGE_VIEW_TYPE_2D);
+                        const Image&       image,
+                        Format             format,
+                        ImageLayout        layout,
+                        ImageAspect        aspect,
+                        ImageViewType      view_type = ImageViewType::View2D);
 
     // Register a storage image (VK_DESCRIPTOR_TYPE_STORAGE_IMAGE).
     // Returns the gStorageImages[] index.
     uint32_t register_storage_image(Device&   device,
-                                    VkImage   image,
-                                    VkFormat  format,
-                                    VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D);
+                            const Image& image,
+                            Format       format,
+                            ImageViewType view_type = ImageViewType::View2D);
 
     // Register a device-addressable buffer as an SSBO
     // (VK_DESCRIPTOR_TYPE_STORAGE_BUFFER).
