@@ -70,36 +70,36 @@ struct ReSTIRGIPushConstants
 };
 static_assert(sizeof(ReSTIRGIPushConstants) == 140);
 
-void image_barrier_compute(VkCommandBuffer cmd,
-                           const VkImage*  images,
-                           uint32_t        count,
-                           VkAccessFlags2  src_access,
-                           VkAccessFlags2  dst_access,
-                           VkImageLayout   old_layout,
-                           VkImageLayout   new_layout = VK_IMAGE_LAYOUT_GENERAL)
+void image_barrier(rr::rhi::CommandRecorder recorder,
+                   const rr::rhi::ImageHandle* images,
+                   uint32_t        count,
+                   rr::rhi::PipelineStage src_stage,
+                   rr::rhi::AccessFlags  src_access,
+                   rr::rhi::PipelineStage dst_stage,
+                   rr::rhi::AccessFlags  dst_access,
+                   rr::rhi::ImageLayout  old_layout,
+                   rr::rhi::ImageLayout  new_layout = rr::rhi::ImageLayout::General)
 {
-    std::vector<VkImageMemoryBarrier2> barriers(count);
+    std::vector<rr::rhi::ImageBarrier> barriers(count);
     for (uint32_t i = 0; i < count; ++i)
     {
         auto& b = barriers[i];
-        b = {};
-        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.srcAccessMask       = src_access;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask       = dst_access;
-        b.oldLayout           = old_layout;
-        b.newLayout           = new_layout;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = images[i];
-        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                 VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+        b.image_handle = images[i];
+        b.src_stage = src_stage;
+        b.src_access = src_access;
+        b.dst_stage = dst_stage;
+        b.dst_access = dst_access;
+        b.old_layout = old_layout;
+        b.new_layout = new_layout;
+        b.subresource = {
+            .aspect = rr::rhi::ImageAspect::Color,
+            .base_mip = 0,
+            .mip_count = rr::rhi::kRemainingMipLevels,
+            .base_layer = 0,
+            .layer_count = rr::rhi::kRemainingArrayLayers,
+        };
     }
-    VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = count;
-    dep.pImageMemoryBarriers    = barriers.data();
-    vkCmdPipelineBarrier2(cmd, &dep);
+    recorder.pipeline_barrier(barriers);
 }
 
 } // namespace
@@ -346,112 +346,82 @@ rr::rhi::ImageHandle ReSTIRGIPass::output_image_handle() const
 
 void ReSTIRGIPass::pre_transition_to_general(rr::rhi::CommandRecorder recorder)
 {
-    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
     // Images that will be cleared (reservoir + history; NOT output_img_).
-    VkImage clearable[] = {
-        reservoir_pos_[0].handle(),
-        reservoir_pos_[1].handle(),
-        reservoir_rad_[0].handle(),
-        reservoir_rad_[1].handle(),
-        reservoir_meta_[0].handle(),
-        reservoir_meta_[1].handle(),
-        history_primary_pos_[0].handle(),
-        history_primary_pos_[1].handle(),
-        history_primary_norm_[0].handle(),
-        history_primary_norm_[1].handle(),
+    rr::rhi::ImageHandle clearable[] = {
+        rr::rhi::to_handle(reservoir_pos_[0].handle()),
+        rr::rhi::to_handle(reservoir_pos_[1].handle()),
+        rr::rhi::to_handle(reservoir_rad_[0].handle()),
+        rr::rhi::to_handle(reservoir_rad_[1].handle()),
+        rr::rhi::to_handle(reservoir_meta_[0].handle()),
+        rr::rhi::to_handle(reservoir_meta_[1].handle()),
+        rr::rhi::to_handle(history_primary_pos_[0].handle()),
+        rr::rhi::to_handle(history_primary_pos_[1].handle()),
+        rr::rhi::to_handle(history_primary_norm_[0].handle()),
+        rr::rhi::to_handle(history_primary_norm_[1].handle()),
     };
     constexpr uint32_t kClearCount = 10;
 
     // Step 1: UNDEFINED→GENERAL for clearable images (dstStage = CLEAR).
     {
-        std::vector<VkImageMemoryBarrier2> b(kClearCount);
-        for (uint32_t i = 0; i < kClearCount; ++i)
-        {
-            b[i] = {};
-            b[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            b[i].srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-            b[i].srcAccessMask       = 0;
-            b[i].dstStageMask        = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-            b[i].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            b[i].oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-            b[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-            b[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b[i].image               = clearable[i];
-            b[i].subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                        VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        }
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = kClearCount;
-        dep.pImageMemoryBarriers    = b.data();
-        vkCmdPipelineBarrier2(cmd, &dep);
+        image_barrier(recorder, clearable, kClearCount,
+                      rr::rhi::PipelineStage::TopOfPipe,
+                      rr::rhi::AccessFlags::None,
+                      rr::rhi::PipelineStage::Transfer,
+                      rr::rhi::AccessFlags::TransferWrite,
+                      rr::rhi::ImageLayout::Undefined,
+                      rr::rhi::ImageLayout::General);
     }
 
-    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS,
-                                  0, VK_REMAINING_ARRAY_LAYERS};
+    const rr::rhi::ImageSubresourceRange range{
+        .aspect = rr::rhi::ImageAspect::Color,
+        .base_mip = 0,
+        .mip_count = rr::rhi::kRemainingMipLevels,
+        .base_layer = 0,
+        .layer_count = rr::rhi::kRemainingArrayLayers,
+    };
 
     // Step 2: Clear history_primary_pos with w=-1 to mark all pixels invalid.
-    VkClearColorValue invalid_pos{};
+    rr::rhi::ClearColor invalid_pos{};
     invalid_pos.float32[3] = -1.0f;
-    vkCmdClearColorImage(cmd, history_primary_pos_[0].handle(),
-                         VK_IMAGE_LAYOUT_GENERAL, &invalid_pos, 1, &range);
-    vkCmdClearColorImage(cmd, history_primary_pos_[1].handle(),
-                         VK_IMAGE_LAYOUT_GENERAL, &invalid_pos, 1, &range);
+    recorder.clear_color_image(history_primary_pos_[0], rr::rhi::ImageLayout::General, invalid_pos, {&range, 1});
+    recorder.clear_color_image(history_primary_pos_[1], rr::rhi::ImageLayout::General, invalid_pos, {&range, 1});
 
     // Step 3: Zero-clear reservoir buffers so M==0 is guaranteed before first frame.
-    VkClearColorValue zero{};
-    for (uint32_t i = 0; i < 6; ++i)
-        vkCmdClearColorImage(cmd, clearable[i], VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+    rr::rhi::ClearColor zero{};
+    recorder.clear_color_image(reservoir_pos_[0], rr::rhi::ImageLayout::General, zero, {&range, 1});
+    recorder.clear_color_image(reservoir_pos_[1], rr::rhi::ImageLayout::General, zero, {&range, 1});
+    recorder.clear_color_image(reservoir_rad_[0], rr::rhi::ImageLayout::General, zero, {&range, 1});
+    recorder.clear_color_image(reservoir_rad_[1], rr::rhi::ImageLayout::General, zero, {&range, 1});
+    recorder.clear_color_image(reservoir_meta_[0], rr::rhi::ImageLayout::General, zero, {&range, 1});
+    recorder.clear_color_image(reservoir_meta_[1], rr::rhi::ImageLayout::General, zero, {&range, 1});
     // Also zero history_primary_norm (no sentinel needed, M==0 gate is sufficient).
-    vkCmdClearColorImage(cmd, history_primary_norm_[0].handle(),
-                         VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
-    vkCmdClearColorImage(cmd, history_primary_norm_[1].handle(),
-                         VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
+    recorder.clear_color_image(history_primary_norm_[0], rr::rhi::ImageLayout::General, zero, {&range, 1});
+    recorder.clear_color_image(history_primary_norm_[1], rr::rhi::ImageLayout::General, zero, {&range, 1});
 
     // Step 4: UNDEFINED→GENERAL for output_img_ (no clear needed, direct write by shader).
     {
-        VkImageMemoryBarrier2 ob{};
-        ob.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        ob.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        ob.srcAccessMask       = 0;
-        ob.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        ob.dstAccessMask       = VK_ACCESS_2_SHADER_WRITE_BIT;
-        ob.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-        ob.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        ob.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ob.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        ob.image               = output_img_.handle();
-        ob.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &ob;
-        vkCmdPipelineBarrier2(cmd, &dep);
+        const rr::rhi::ImageBarrier output_barrier{
+            .image = &output_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .src_access = rr::rhi::AccessFlags::None,
+            .dst_stage = rr::rhi::PipelineStage::ComputeShader,
+            .dst_access = rr::rhi::AccessFlags::ShaderWrite,
+            .old_layout = rr::rhi::ImageLayout::Undefined,
+            .new_layout = rr::rhi::ImageLayout::General,
+            .subresource = range,
+        };
+        recorder.pipeline_barrier({&output_barrier, 1});
     }
 
     // Step 5: CLEAR → COMPUTE barrier for the 10 cleared images.
     {
-        std::vector<VkImageMemoryBarrier2> b(kClearCount);
-        for (uint32_t i = 0; i < kClearCount; ++i)
-        {
-            b[i] = {};
-            b[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-            b[i].srcStageMask        = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-            b[i].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            b[i].dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b[i].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-            b[i].oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
-            b[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-            b[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b[i].image               = clearable[i];
-            b[i].subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                        VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        }
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = kClearCount;
-        dep.pImageMemoryBarriers    = b.data();
-        vkCmdPipelineBarrier2(cmd, &dep);
+        image_barrier(recorder, clearable, kClearCount,
+                      rr::rhi::PipelineStage::Transfer,
+                      rr::rhi::AccessFlags::TransferWrite,
+                      rr::rhi::PipelineStage::ComputeShader,
+                      rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+                      rr::rhi::ImageLayout::General,
+                      rr::rhi::ImageLayout::General);
     }
 }
 
@@ -466,9 +436,9 @@ void ReSTIRGIPass::execute(rr::render::FrameContext& fc)
     const auto& scene = *fc.scene;
     if (!scene.is_uploaded()) return;
 
-    VkCommandBuffer cmd     = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
+    const rr::rhi::CommandRecorder recorder = fc.command_recorder;
     const auto&     handles = scene.gpu_handles();
-    const VkImage direct_input_image = rr::rhi::from_handle<VkImage>(direct_input_image_);
+    const rr::rhi::ImageHandle direct_input_image = direct_input_image_;
 
     const uint32_t curr = reservoir_flip_;
     const uint32_t prev = 1u - reservoir_flip_;
@@ -511,187 +481,170 @@ void ReSTIRGIPass::execute(rr::render::FrameContext& fc)
     pc.indirect_strength       = indirect_strength;
     pc.ray_bias                = ray_bias;
 
-    VkPushDataInfoEXT push_info{};
-    push_info.sType        = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_info.offset       = 0;
-    push_info.data.address = &pc;
-    push_info.data.size    = sizeof(pc);
-
     // If history was just reset, clear the prev-side buffers so cs_temporal sees
     // an explicitly invalid history (M=0, history_pos.w=-1) instead of stale data
     // from before the reset.
     if (consume_history_dirty())
     {
-        VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS,
-                                      0, VK_REMAINING_ARRAY_LAYERS};
-        VkImage clear_targets[] = {
-            reservoir_pos_[prev].handle(),
-            reservoir_rad_[prev].handle(),
-            reservoir_meta_[prev].handle(),
-            history_primary_pos_[prev].handle(),
-            history_primary_norm_[prev].handle(),
+        const rr::rhi::ImageSubresourceRange range{
+            .aspect = rr::rhi::ImageAspect::Color,
+            .base_mip = 0,
+            .mip_count = rr::rhi::kRemainingMipLevels,
+            .base_layer = 0,
+            .layer_count = rr::rhi::kRemainingArrayLayers,
+        };
+        rr::rhi::ImageHandle clear_targets[] = {
+            rr::rhi::to_handle(reservoir_pos_[prev].handle()),
+            rr::rhi::to_handle(reservoir_rad_[prev].handle()),
+            rr::rhi::to_handle(reservoir_meta_[prev].handle()),
+            rr::rhi::to_handle(history_primary_pos_[prev].handle()),
+            rr::rhi::to_handle(history_primary_norm_[prev].handle()),
         };
 
         // Pre-clear barrier: ensure prior shader writes complete before transfer clears.
         {
-            std::vector<VkImageMemoryBarrier2> b(5);
-            for (uint32_t i = 0; i < 5; ++i)
-            {
-                b[i] = {};
-                b[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                b[i].srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                b[i].srcAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-                b[i].dstStageMask        = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-                b[i].dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                b[i].oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
-                b[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-                b[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                b[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                b[i].image               = clear_targets[i];
-                b[i].subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                            VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-            }
-            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 5;
-            dep.pImageMemoryBarriers    = b.data();
-            vkCmdPipelineBarrier2(cmd, &dep);
+            image_barrier(recorder, clear_targets, 5,
+                          rr::rhi::PipelineStage::ComputeShader,
+                          rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+                          rr::rhi::PipelineStage::Transfer,
+                          rr::rhi::AccessFlags::TransferWrite,
+                          rr::rhi::ImageLayout::General,
+                          rr::rhi::ImageLayout::General);
         }
 
-        VkClearColorValue zero{};
-        VkClearColorValue invalid_pos{};
+        rr::rhi::ClearColor zero{};
+        rr::rhi::ClearColor invalid_pos{};
         invalid_pos.float32[3] = -1.0f;
-        vkCmdClearColorImage(cmd, reservoir_pos_[prev].handle(),  VK_IMAGE_LAYOUT_GENERAL, &zero,        1, &range);
-        vkCmdClearColorImage(cmd, reservoir_rad_[prev].handle(),  VK_IMAGE_LAYOUT_GENERAL, &zero,        1, &range);
-        vkCmdClearColorImage(cmd, reservoir_meta_[prev].handle(), VK_IMAGE_LAYOUT_GENERAL, &zero,        1, &range);
-        vkCmdClearColorImage(cmd, history_primary_pos_[prev].handle(),  VK_IMAGE_LAYOUT_GENERAL, &invalid_pos, 1, &range);
-        vkCmdClearColorImage(cmd, history_primary_norm_[prev].handle(), VK_IMAGE_LAYOUT_GENERAL, &zero,        1, &range);
+        recorder.clear_color_image(reservoir_pos_[prev], rr::rhi::ImageLayout::General, zero, {&range, 1});
+        recorder.clear_color_image(reservoir_rad_[prev], rr::rhi::ImageLayout::General, zero, {&range, 1});
+        recorder.clear_color_image(reservoir_meta_[prev], rr::rhi::ImageLayout::General, zero, {&range, 1});
+        recorder.clear_color_image(history_primary_pos_[prev], rr::rhi::ImageLayout::General, invalid_pos, {&range, 1});
+        recorder.clear_color_image(history_primary_norm_[prev], rr::rhi::ImageLayout::General, zero, {&range, 1});
 
         // Post-clear barrier: clear writes must be visible before subsequent shader access.
         {
-            std::vector<VkImageMemoryBarrier2> b(5);
-            for (uint32_t i = 0; i < 5; ++i)
-            {
-                b[i] = {};
-                b[i].sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-                b[i].srcStageMask        = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-                b[i].srcAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-                b[i].dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                b[i].dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-                b[i].oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
-                b[i].newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-                b[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                b[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                b[i].image               = clear_targets[i];
-                b[i].subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                            VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-            }
-            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 5;
-            dep.pImageMemoryBarriers    = b.data();
-            vkCmdPipelineBarrier2(cmd, &dep);
+            image_barrier(recorder, clear_targets, 5,
+                          rr::rhi::PipelineStage::Transfer,
+                          rr::rhi::AccessFlags::TransferWrite,
+                          rr::rhi::PipelineStage::ComputeShader,
+                          rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+                          rr::rhi::ImageLayout::General,
+                          rr::rhi::ImageLayout::General);
         }
     }
 
     {
-        VkImage curr_imgs[] = {
-            reservoir_pos_[curr].handle(),
-            reservoir_rad_[curr].handle(),
-            reservoir_meta_[curr].handle(),
-            history_primary_pos_[curr].handle(),
-            history_primary_norm_[curr].handle(),
+        rr::rhi::ImageHandle curr_imgs[] = {
+            rr::rhi::to_handle(reservoir_pos_[curr].handle()),
+            rr::rhi::to_handle(reservoir_rad_[curr].handle()),
+            rr::rhi::to_handle(reservoir_meta_[curr].handle()),
+            rr::rhi::to_handle(history_primary_pos_[curr].handle()),
+            rr::rhi::to_handle(history_primary_norm_[curr].handle()),
         };
-        image_barrier_compute(cmd,
+        image_barrier(recorder,
                               curr_imgs,
                               5,
-                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_IMAGE_LAYOUT_GENERAL,
-                              VK_IMAGE_LAYOUT_GENERAL);
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::ImageLayout::General,
+                              rr::rhi::ImageLayout::General);
     }
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, initial_pipeline_.handle());
-    vkCmdPushDataEXT(cmd, &push_info);
-    vkCmdDispatch(cmd, gx, gy, 1);
+    recorder.bind_compute_pipeline(initial_pipeline_);
+    recorder.push_constants(&pc, sizeof(pc));
+    recorder.dispatch(gx, gy, 1);
 
     {
-        VkImage curr_imgs[] = {
-            reservoir_pos_[curr].handle(),
-            reservoir_rad_[curr].handle(),
-            reservoir_meta_[curr].handle(),
-            history_primary_pos_[curr].handle(),
-            history_primary_norm_[curr].handle(),
+        rr::rhi::ImageHandle curr_imgs[] = {
+            rr::rhi::to_handle(reservoir_pos_[curr].handle()),
+            rr::rhi::to_handle(reservoir_rad_[curr].handle()),
+            rr::rhi::to_handle(reservoir_meta_[curr].handle()),
+            rr::rhi::to_handle(history_primary_pos_[curr].handle()),
+            rr::rhi::to_handle(history_primary_norm_[curr].handle()),
         };
-        image_barrier_compute(cmd,
+        image_barrier(recorder,
                               curr_imgs,
                               5,
-                              VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_IMAGE_LAYOUT_GENERAL,
-                              VK_IMAGE_LAYOUT_GENERAL);
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::ImageLayout::General,
+                              rr::rhi::ImageLayout::General);
     }
 
     {
-        VkImage prev_imgs[] = {
-            reservoir_pos_[prev].handle(),
-            reservoir_rad_[prev].handle(),
-            reservoir_meta_[prev].handle(),
-            history_primary_pos_[prev].handle(),
-            history_primary_norm_[prev].handle(),
+        rr::rhi::ImageHandle prev_imgs[] = {
+            rr::rhi::to_handle(reservoir_pos_[prev].handle()),
+            rr::rhi::to_handle(reservoir_rad_[prev].handle()),
+            rr::rhi::to_handle(reservoir_meta_[prev].handle()),
+            rr::rhi::to_handle(history_primary_pos_[prev].handle()),
+            rr::rhi::to_handle(history_primary_norm_[prev].handle()),
         };
-        image_barrier_compute(cmd,
+        image_barrier(recorder,
                               prev_imgs,
                               5,
-                              VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_ACCESS_2_SHADER_READ_BIT,
-                              VK_IMAGE_LAYOUT_GENERAL,
-                              VK_IMAGE_LAYOUT_GENERAL);
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderRead,
+                              rr::rhi::ImageLayout::General,
+                              rr::rhi::ImageLayout::General);
     }
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, temporal_pipeline_.handle());
-    vkCmdPushDataEXT(cmd, &push_info);
-    vkCmdDispatch(cmd, gx, gy, 1);
+    recorder.bind_compute_pipeline(temporal_pipeline_);
+    recorder.push_constants(&pc, sizeof(pc));
+    recorder.dispatch(gx, gy, 1);
 
     {
-        VkImage curr_imgs[] = {
-            reservoir_pos_[curr].handle(),
-            reservoir_rad_[curr].handle(),
-            reservoir_meta_[curr].handle(),
+        rr::rhi::ImageHandle curr_imgs[] = {
+            rr::rhi::to_handle(reservoir_pos_[curr].handle()),
+            rr::rhi::to_handle(reservoir_rad_[curr].handle()),
+            rr::rhi::to_handle(reservoir_meta_[curr].handle()),
         };
-        image_barrier_compute(cmd,
+        image_barrier(recorder,
                               curr_imgs,
                               3,
-                              VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_ACCESS_2_SHADER_READ_BIT,
-                              VK_IMAGE_LAYOUT_GENERAL,
-                              VK_IMAGE_LAYOUT_GENERAL);
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderRead,
+                              rr::rhi::ImageLayout::General,
+                              rr::rhi::ImageLayout::General);
     }
 
     if (include_direct_lighting && direct_input_image_ != 0)
     {
-        VkImage direct_imgs[] = {direct_input_image};
-        image_barrier_compute(cmd,
+        rr::rhi::ImageHandle direct_imgs[] = {direct_input_image};
+        image_barrier(recorder,
                               direct_imgs,
                               1,
-                              VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_ACCESS_2_SHADER_READ_BIT,
-                              VK_IMAGE_LAYOUT_GENERAL,
-                              VK_IMAGE_LAYOUT_GENERAL);
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderRead,
+                              rr::rhi::ImageLayout::General,
+                              rr::rhi::ImageLayout::General);
     }
 
     {
-        VkImage output_imgs[] = {output_img_.handle()};
-        image_barrier_compute(cmd,
+        rr::rhi::ImageHandle output_imgs[] = {rr::rhi::to_handle(output_img_.handle())};
+        image_barrier(recorder,
                               output_imgs,
                               1,
-                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_ACCESS_2_SHADER_WRITE_BIT,
-                              VK_IMAGE_LAYOUT_GENERAL,
-                              VK_IMAGE_LAYOUT_GENERAL);
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::PipelineStage::ComputeShader,
+                              rr::rhi::AccessFlags::ShaderWrite,
+                              rr::rhi::ImageLayout::General,
+                              rr::rhi::ImageLayout::General);
     }
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, spatial_shade_pipeline_.handle());
-    vkCmdPushDataEXT(cmd, &push_info);
-    vkCmdDispatch(cmd, gx, gy, 1);
+    recorder.bind_compute_pipeline(spatial_shade_pipeline_);
+    recorder.push_constants(&pc, sizeof(pc));
+    recorder.dispatch(gx, gy, 1);
 
     reservoir_flip_ ^= 1u;
 }

@@ -169,32 +169,31 @@ void AccumulatePass::execute(rr::render::FrameContext& fc)
     if (!pipeline_.is_valid()) return;
     if (radiance_storage_idx == UINT32_MAX) return;
 
-    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
+    const rr::rhi::CommandRecorder recorder = fc.command_recorder;
 
     // Transition accumulated image to GENERAL
     {
-        VkImageMemoryBarrier2 b{};
-        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.srcAccessMask       = VK_ACCESS_2_SHADER_WRITE_BIT;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        b.oldLayout           = camera_moved ? VK_IMAGE_LAYOUT_UNDEFINED
-                                              : VK_IMAGE_LAYOUT_GENERAL;
-        b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = accumulated_img_.handle();
-        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        VkDependencyInfo dep{};
-        dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
+        const rr::rhi::ImageBarrier barrier{
+            .image = &accumulated_img_,
+            .src_stage = rr::rhi::PipelineStage::ComputeShader,
+            .src_access = rr::rhi::AccessFlags::ShaderWrite,
+            .dst_stage = rr::rhi::PipelineStage::ComputeShader,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+            .old_layout = camera_moved ? rr::rhi::ImageLayout::Undefined
+                                       : rr::rhi::ImageLayout::General,
+            .new_layout = rr::rhi::ImageLayout::General,
+            .subresource = {
+                .aspect = rr::rhi::ImageAspect::Color,
+                .base_mip = 0,
+                .mip_count = rr::rhi::kRemainingMipLevels,
+                .base_layer = 0,
+                .layer_count = rr::rhi::kRemainingArrayLayers,
+            },
+        };
+        recorder.pipeline_barrier({&barrier, 1});
     }
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_.handle());
+    recorder.bind_compute_pipeline(pipeline_);
 
     AccumulatePushConstants pc{};
     pc.radiance_idx    = radiance_storage_idx;
@@ -204,16 +203,11 @@ void AccumulatePass::execute(rr::render::FrameContext& fc)
     pc.camera_moved    = camera_moved ? 1u : 0u;
     pc.accumulated_spp = accumulated_spp;
 
-    VkPushDataInfoEXT push_info{};
-    push_info.sType        = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-    push_info.offset       = 0;
-    push_info.data.address = &pc;
-    push_info.data.size    = sizeof(pc);
-    vkCmdPushDataEXT(cmd, &push_info);
+    recorder.push_constants(&pc, sizeof(pc));
 
     uint32_t gx = (extent_.width  + 7) / 8;
     uint32_t gy = (extent_.height + 7) / 8;
-    vkCmdDispatch(cmd, gx, gy, 1);
+    recorder.dispatch(gx, gy, 1);
 
     // Update spp for next frame
     if (camera_moved)

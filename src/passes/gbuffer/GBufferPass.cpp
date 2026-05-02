@@ -3,18 +3,13 @@
 #include "core/Log.h"
 #include "render/FrameContext.h"
 #include "rhi/BindlessRegistry.h"
-#include "rhi/CommandBuffer.h"
 #include "rhi/Device.h"
 #include "scene/GpuScene.h"
 #include "scene/Scene.h"
 
 #include <imgui.h>
+#include <array>
 #include <stdexcept>
-
-// VMA for alloc flags
-#define VMA_STATIC_VULKAN_FUNCTIONS  0
-#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
-#include <vk_mem_alloc.h>
 
 namespace rr::passes::gbuffer
 {
@@ -160,28 +155,33 @@ void GBufferPass::create_pipeline(rr::rhi::Device& device,
 
 void GBufferPass::pre_transition_to_general(rr::rhi::CommandRecorder recorder)
 {
-    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
-    auto transition = [&](VkImage img) {
-        VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        b.srcAccessMask       = 0;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-        b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = img;
-        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
+    const std::array barriers = {
+        rr::rhi::ImageBarrier{
+            .image = &position_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::AllCommands,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+            .old_layout = rr::rhi::ImageLayout::Undefined,
+            .new_layout = rr::rhi::ImageLayout::General,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &normal_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::AllCommands,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+            .old_layout = rr::rhi::ImageLayout::Undefined,
+            .new_layout = rr::rhi::ImageLayout::General,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &material_id_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::AllCommands,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+            .old_layout = rr::rhi::ImageLayout::Undefined,
+            .new_layout = rr::rhi::ImageLayout::General,
+        },
     };
-    transition(position_img_.handle());
-    transition(normal_img_.handle());
-    transition(material_id_img_.handle());
+    recorder.pipeline_barrier(barriers);
 }
 
 void GBufferPass::on_resize(rr::rhi::Extent2D new_extent)
@@ -219,89 +219,89 @@ void GBufferPass::execute(rr::render::FrameContext& fc)
     if (!scene.is_uploaded() || scene.instance_count() == 0) return;
     if (!pipeline_.is_valid()) return;
 
-    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(fc.command_recorder.handle());
+    const rr::rhi::CommandRecorder recorder = fc.command_recorder;
     const auto& handles = scene.gpu_handles();
-    const VkExtent2D extent{extent_.width, extent_.height};
+    const rr::rhi::Extent2D extent{extent_.width, extent_.height};
 
     // Transition GBuffer images to COLOR_ATTACHMENT_OPTIMAL
-    auto barrier = [&](VkImage img, VkImageAspectFlags aspect,
-                        VkImageLayout old_l, VkImageLayout new_l)
-    {
-        VkImageMemoryBarrier2 b{};
-        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        b.srcAccessMask       = 0;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT |
-                                VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
-        b.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-                                VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        b.oldLayout           = old_l;
-        b.newLayout           = new_l;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = img;
-        b.subresourceRange    = {aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
+    const std::array attachment_barriers = {
+        rr::rhi::ImageBarrier{
+            .image = &position_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+            .dst_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+            .old_layout = rr::rhi::ImageLayout::General,
+            .new_layout = rr::rhi::ImageLayout::ColorAttachment,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &normal_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+            .dst_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+            .old_layout = rr::rhi::ImageLayout::General,
+            .new_layout = rr::rhi::ImageLayout::ColorAttachment,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &material_id_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+            .dst_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+            .old_layout = rr::rhi::ImageLayout::General,
+            .new_layout = rr::rhi::ImageLayout::ColorAttachment,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &depth_img_,
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .dst_stage = rr::rhi::PipelineStage::EarlyFragmentTests,
+            .dst_access = rr::rhi::AccessFlags::DepthStencilAttachmentWrite,
+            .old_layout = rr::rhi::ImageLayout::Undefined,
+            .new_layout = rr::rhi::ImageLayout::DepthStencilAttachment,
+            .subresource = {.aspect = rr::rhi::ImageAspect::Depth},
+        },
     };
-    barrier(position_img_.handle(),    VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    barrier(normal_img_.handle(),      VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    barrier(material_id_img_.handle(), VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    barrier(depth_img_.handle(),       VK_IMAGE_ASPECT_DEPTH_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    recorder.pipeline_barrier(attachment_barriers);
 
     // Begin dynamic rendering
-    std::array<VkRenderingAttachmentInfo, 3> color_attachments{};
-    auto make_ca = [](VkImageView view) {
-        VkRenderingAttachmentInfo a{};
-        a.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        a.imageView   = view;
-        a.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        a.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        a.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-        a.clearValue.color = {0.0f, 0.0f, 0.0f, 0.0f};
-        return a;
+    auto make_ca = [](const rr::rhi::Image& image) {
+        return rr::rhi::ColorAttachment{
+            .image = &image,
+            .layout = rr::rhi::ImageLayout::ColorAttachment,
+            .load_op = rr::rhi::LoadOp::Clear,
+            .store_op = rr::rhi::StoreOp::Store,
+        };
     };
-    color_attachments[0] = make_ca(position_img_.view());
-    color_attachments[1] = make_ca(normal_img_.view());
-    color_attachments[2] = make_ca(material_id_img_.view());
-    color_attachments[2].clearValue.color.uint32[0] = 0xFFFFFFFF; // invalid material
+    std::array color_attachments = {
+        make_ca(position_img_),
+        make_ca(normal_img_),
+        make_ca(material_id_img_),
+    };
+    color_attachments[2].clear.type = rr::rhi::ClearColor::Type::Uint32;
+    color_attachments[2].clear.uint32[0] = 0xFFFFFFFFu;
 
-    VkRenderingAttachmentInfo depth_att{};
-    depth_att.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_att.imageView   = depth_img_.view();
-    depth_att.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    depth_att.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth_att.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-    depth_att.clearValue.depthStencil = {1.0f, 0};
+    const rr::rhi::DepthAttachment depth_attachment{
+        .image = &depth_img_,
+        .layout = rr::rhi::ImageLayout::DepthStencilAttachment,
+        .load_op = rr::rhi::LoadOp::Clear,
+        .store_op = rr::rhi::StoreOp::Store,
+        .clear_depth = 1.0f,
+        .clear_stencil = 0,
+    };
 
-    VkRenderingInfo rendering{};
-    rendering.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering.renderArea           = {{0,0}, extent};
-    rendering.layerCount           = 1;
-    rendering.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-    rendering.pColorAttachments    = color_attachments.data();
-    rendering.pDepthAttachment     = &depth_att;
-    vkCmdBeginRendering(cmd, &rendering);
+    const rr::rhi::RenderingInfo rendering{
+        .area = extent,
+        .layer_count = 1,
+        .color_attachments = {color_attachments.data(), color_attachments.size()},
+        .depth_attachment = &depth_attachment,
+    };
+    recorder.begin_rendering(rendering);
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_.handle());
+    recorder.bind_graphics_pipeline(pipeline_);
+    recorder.set_viewport(0.0f, 0.0f,
+                          static_cast<float>(extent.width),
+                          static_cast<float>(extent.height));
+    recorder.set_scissor(0, 0, extent.width, extent.height);
 
-    VkViewport viewport{0.0f, 0.0f,
-                         static_cast<float>(extent_.width),
-                         static_cast<float>(extent_.height),
-                         0.0f, 1.0f};
-    VkRect2D scissor{{0,0}, extent};
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    // Bind global index buffer once (all meshes use the same global buffer)
-    // Note: No VkIndexBuffer bind needed; VS manually reads index data via bindless buffer.
+    // Bind global index buffer once; the vertex shader reads index data via bindless buffers.
 
     // Per-instance draw loop
     GBufferPushConstants pc{};
@@ -319,44 +319,46 @@ void GBufferPass::execute(rr::render::FrameContext& fc)
     for (uint32_t i = 0; i < static_cast<uint32_t>(instances.size()); ++i)
     {
         pc.draw_instance_idx = i;
-        VkPushDataInfoEXT push_info{};
-        push_info.sType        = VK_STRUCTURE_TYPE_PUSH_DATA_INFO_EXT;
-        push_info.offset       = 0;
-        push_info.data.address = &pc;
-        push_info.data.size    = sizeof(pc);
-        vkCmdPushDataEXT(cmd, &push_info);
+        recorder.push_constants(&pc, sizeof(pc));
 
         const auto& inst = instances[i];
         const auto& mesh = meshes[inst.mesh_index];
-        vkCmdDraw(cmd, mesh.index_count, 1, 0, 0);
+        recorder.draw(mesh.index_count, 1, 0, 0);
     }
 
-    vkCmdEndRendering(cmd);
+    recorder.end_rendering();
 
     // Transition outputs to GENERAL layout (readable as storage images by compute passes)
-    auto to_general = [&](VkImage img) {
-        VkImageMemoryBarrier2 b{};
-        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        b.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT;
-        b.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = img;
-        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                  VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
+    const std::array general_barriers = {
+        rr::rhi::ImageBarrier{
+            .image = &position_img_,
+            .src_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+            .src_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+            .dst_stage = rr::rhi::PipelineStage::ComputeShader,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead,
+            .old_layout = rr::rhi::ImageLayout::ColorAttachment,
+            .new_layout = rr::rhi::ImageLayout::General,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &normal_img_,
+            .src_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+            .src_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+            .dst_stage = rr::rhi::PipelineStage::ComputeShader,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead,
+            .old_layout = rr::rhi::ImageLayout::ColorAttachment,
+            .new_layout = rr::rhi::ImageLayout::General,
+        },
+        rr::rhi::ImageBarrier{
+            .image = &material_id_img_,
+            .src_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+            .src_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+            .dst_stage = rr::rhi::PipelineStage::ComputeShader,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead,
+            .old_layout = rr::rhi::ImageLayout::ColorAttachment,
+            .new_layout = rr::rhi::ImageLayout::General,
+        },
     };
-    to_general(position_img_.handle());
-    to_general(normal_img_.handle());
-    to_general(material_id_img_.handle());
+    recorder.pipeline_barrier(general_barriers);
 }
 
 } // namespace rr::passes::gbuffer

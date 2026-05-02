@@ -23,6 +23,7 @@ struct ImageSubresourceRange
 struct ImageBarrier
 {
     const Image*   image      = nullptr;
+    ImageHandle    image_handle = 0;
     PipelineStage  src_stage  = PipelineStage::None;
     AccessFlags    src_access = AccessFlags::None;
     PipelineStage  dst_stage  = PipelineStage::None;

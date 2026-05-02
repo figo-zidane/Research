@@ -19,6 +19,25 @@ namespace
     }
     return static_cast<VkCommandBuffer>(recorder.handle());
 }
+
+[[nodiscard]] VkClearColorValue to_vk_clear_color(const ClearColor& clear_color)
+{
+    VkClearColorValue value{};
+    if (clear_color.type == ClearColor::Type::Uint32)
+    {
+        value.uint32[0] = clear_color.uint32[0];
+        value.uint32[1] = clear_color.uint32[1];
+        value.uint32[2] = clear_color.uint32[2];
+        value.uint32[3] = clear_color.uint32[3];
+        return value;
+    }
+
+    value.float32[0] = clear_color.float32[0];
+    value.float32[1] = clear_color.float32[1];
+    value.float32[2] = clear_color.float32[2];
+    value.float32[3] = clear_color.float32[3];
+    return value;
+}
 } // namespace
 
 void CommandRecorder::bind_compute_pipeline(const ComputePipeline& pipeline) const
@@ -69,9 +88,9 @@ void CommandRecorder::pipeline_barrier(std::span<const ImageBarrier> barriers) c
     vk_barriers.reserve(barriers.size());
     for (const ImageBarrier& barrier : barriers)
     {
-        if (barrier.image == nullptr)
+        if (barrier.image == nullptr && barrier.image_handle == 0)
         {
-            throw std::runtime_error("ImageBarrier requires a valid image.");
+            throw std::runtime_error("ImageBarrier requires a valid image or image handle.");
         }
         VkImageMemoryBarrier2 vk_barrier{};
         vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -81,7 +100,9 @@ void CommandRecorder::pipeline_barrier(std::span<const ImageBarrier> barriers) c
         vk_barrier.dstAccessMask = to_vk_access_flags(barrier.dst_access);
         vk_barrier.oldLayout = to_vk_image_layout(barrier.old_layout);
         vk_barrier.newLayout = to_vk_image_layout(barrier.new_layout);
-        vk_barrier.image = barrier.image->handle();
+        vk_barrier.image = barrier.image != nullptr
+            ? barrier.image->handle()
+            : from_handle<VkImage>(barrier.image_handle);
         vk_barrier.subresourceRange = to_vk_image_subresource_range(barrier.subresource);
         vk_barriers.push_back(vk_barrier);
     }
@@ -99,22 +120,19 @@ void CommandRecorder::begin_rendering(const RenderingInfo& rendering_info) const
     color_attachments.reserve(rendering_info.color_attachments.size());
     for (const ColorAttachment& attachment : rendering_info.color_attachments)
     {
-        if (attachment.image == nullptr)
+        if (attachment.image == nullptr && attachment.image_view == 0)
         {
-            throw std::runtime_error("ColorAttachment requires a valid image.");
+            throw std::runtime_error("ColorAttachment requires a valid image or image view.");
         }
         VkRenderingAttachmentInfo vk_attachment{};
         vk_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        vk_attachment.imageView = attachment.image->view();
+        vk_attachment.imageView = attachment.image != nullptr
+            ? attachment.image->view()
+            : from_handle<VkImageView>(attachment.image_view);
         vk_attachment.imageLayout = to_vk_image_layout(attachment.layout);
         vk_attachment.loadOp = to_vk_load_op(attachment.load_op);
         vk_attachment.storeOp = to_vk_store_op(attachment.store_op);
-        vk_attachment.clearValue.color = {{
-            attachment.clear.float32[0],
-            attachment.clear.float32[1],
-            attachment.clear.float32[2],
-            attachment.clear.float32[3],
-        }};
+        vk_attachment.clearValue.color = to_vk_clear_color(attachment.clear);
         color_attachments.push_back(vk_attachment);
     }
 
@@ -123,12 +141,14 @@ void CommandRecorder::begin_rendering(const RenderingInfo& rendering_info) const
     if (rendering_info.depth_attachment != nullptr)
     {
         const DepthAttachment& attachment = *rendering_info.depth_attachment;
-        if (attachment.image == nullptr)
+        if (attachment.image == nullptr && attachment.image_view == 0)
         {
-            throw std::runtime_error("DepthAttachment requires a valid image.");
+            throw std::runtime_error("DepthAttachment requires a valid image or image view.");
         }
         depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_attachment.imageView = attachment.image->view();
+        depth_attachment.imageView = attachment.image != nullptr
+            ? attachment.image->view()
+            : from_handle<VkImageView>(attachment.image_view);
         depth_attachment.imageLayout = to_vk_image_layout(attachment.layout);
         depth_attachment.loadOp = to_vk_load_op(attachment.load_op);
         depth_attachment.storeOp = to_vk_store_op(attachment.store_op);
@@ -163,11 +183,7 @@ void CommandRecorder::clear_color_image(const Image& image,
         vk_ranges.push_back(to_vk_image_subresource_range(range));
     }
 
-    VkClearColorValue value{};
-    value.float32[0] = clear_color.float32[0];
-    value.float32[1] = clear_color.float32[1];
-    value.float32[2] = clear_color.float32[2];
-    value.float32[3] = clear_color.float32[3];
+    VkClearColorValue value = to_vk_clear_color(clear_color);
     vkCmdClearColorImage(as_vk_cmd(*this), image.handle(), to_vk_image_layout(layout), &value,
                          static_cast<uint32_t>(vk_ranges.size()), vk_ranges.data());
 }

@@ -16,7 +16,7 @@ class BindlessRegistry;
 namespace rr::passes::pathtracer
 {
 
-// PathTracerPass — naive reference path tracer using VK_KHR_ray_query.
+// PathTracerPass — naive reference path tracer using ray query.
 // Runs as a compute dispatch, one thread per pixel.
 // Outputs a linear HDR radiance image (RGBA32F).
 class PathTracerPass : public rr::render::RenderPass

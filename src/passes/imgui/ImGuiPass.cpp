@@ -142,23 +142,24 @@ void ImGuiPass::execute(rr::render::FrameContext& ctx)
     // Open a dynamic rendering scope on the current swapchain image.
     // TonemapPass has already written the rendered scene to the swapchain;
     // use LOAD so ImGui is composited on top of the existing contents.
-    VkRenderingAttachmentInfo color_attachment{};
-    color_attachment.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView   = rr::rhi::from_handle<VkImageView>(ctx.swapchain_image_view);
-    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
-    color_attachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+    const rr::rhi::ColorAttachment color_attachment{
+        .image = nullptr,
+        .image_view = ctx.swapchain_image_view,
+        .layout = rr::rhi::ImageLayout::ColorAttachment,
+        .load_op = rr::rhi::LoadOp::Load,
+        .store_op = rr::rhi::StoreOp::Store,
+    };
+    const rr::rhi::RenderingInfo rendering{
+        .area = ctx.swapchain_extent,
+        .layer_count = 1,
+        .color_attachments = {&color_attachment, 1},
+        .depth_attachment = nullptr,
+    };
 
-    VkRenderingInfo rendering{};
-    rendering.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering.renderArea.extent    = {ctx.swapchain_extent.width, ctx.swapchain_extent.height};
-    rendering.layerCount           = 1;
-    rendering.colorAttachmentCount = 1;
-    rendering.pColorAttachments    = &color_attachment;
-
-    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(ctx.command_recorder.handle());
-    vkCmdBeginRendering(cmd, &rendering);
+    const rr::rhi::CommandRecorder recorder = ctx.command_recorder;
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
+    recorder.begin_rendering(rendering);
     ImGui_ImplVulkan_RenderDrawData(draw_data, cmd);
-    vkCmdEndRendering(cmd);
+    recorder.end_rendering();
 }
 }
