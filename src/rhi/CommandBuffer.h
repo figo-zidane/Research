@@ -28,10 +28,6 @@ public:
     [[nodiscard]] CommandRecorder begin_frame(uint32_t frame_index);
     void end_frame(CommandRecorder cmd);
 
-    // Returns the command pool for frame slot 0 (suitable for one-time submissions
-    // that don't need to align with a specific in-flight frame slot).
-    [[nodiscard]] CommandPoolHandle pool() const { return pools_[0]; }
-
 private:
     Device* device_ = nullptr;
     std::array<CommandPoolHandle, kFramesInFlight> pools_{};

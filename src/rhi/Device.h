@@ -3,6 +3,7 @@
 #include "rhi/Handles.h"
 #include "rhi/Platform.h"
 
+#include <functional>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ public:
     // logical device is created.
     void create_instance(const CreateInfo& create_info);
     void create_device_with_surface(const Surface& surface);
+    void one_time_submit(const std::function<void(CommandRecorder)>& record_commands) const;
     void submit_frame(CommandRecorder recorder, const Frame& frame, const Swapchain& swapchain, uint32_t image_index) const;
     void shutdown();
     void wait_idle() const;
@@ -65,6 +67,7 @@ private:
     PhysicalDeviceHandle physical_device_ = nullptr;
     LogicalDeviceHandle device_ = nullptr;
     QueueHandle graphics_queue_ = nullptr;
+    CommandPoolHandle one_time_pool_ = nullptr;
     QueueFamilies queue_families_{};
     std::string physical_device_name_;
     uint32_t physical_device_api_version_ = 0;

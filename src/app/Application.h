@@ -20,7 +20,6 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -56,9 +55,7 @@ private:
     void initialize_renderer();
     void render_frame();
     void recreate_swapchain();
-
-    // One-time GPU command submission helper.
-    void one_time_submit(std::function<void(rr::rhi::CommandRecorder)> fn);
+    void pre_transition_persistent_images(rr::rhi::CommandRecorder recorder);
 
     // Screenshot: save accumulated image to PNG.
     void capture_screenshot();

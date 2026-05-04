@@ -185,7 +185,7 @@ void Application::initialize_renderer()
     scene_.upload(device_, bindless_registry_,
         [this](std::function<void(rr::rhi::CommandRecorder)> fn)
         {
-            one_time_submit(fn);
+            device_.one_time_submit(fn);
         });
 
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
@@ -253,38 +253,9 @@ void Application::initialize_renderer()
     // it was registered with.  Without this transition, images that are only
     // transitioned inside their own execute() would still be UNDEFINED when an
     // earlier pass dispatches.
-    one_time_submit([this](rr::rhi::CommandRecorder recorder)
+    device_.one_time_submit([this](rr::rhi::CommandRecorder recorder)
     {
-        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
-        // accumulated_image (AccumulatePass): registered as GENERAL storage image.
-        {
-            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-            b.srcAccessMask       = 0;
-            b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-            b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-            b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image               = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
-            b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers    = &b;
-            vkCmdPipelineBarrier2(cmd, &dep);
-        }
-        // GBufferPass storage images: transition UNDEFINED → GENERAL so the
-        // bindless heap sees the correct layout before the first frame executes.
-        if (gbuffer_pass_)
-            gbuffer_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
-        // ReSTIR DI pass: all owned storage images must be GENERAL before first frame.
-        if (restir_di_pass_)
-            restir_di_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
-        if (restir_gi_pass_)
-            restir_gi_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
-        if (atrous_pass_)
-            atrous_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
+        pre_transition_persistent_images(recorder);
     });
 
     // Hot reload — watch shaders directory
@@ -301,6 +272,39 @@ void Application::initialize_renderer()
         [this]() { return restir_gi_pass_->reload_shader(slang_session_); });
     hot_reload_.register_shader("assets/shaders/passes/denoise/atrous.slang",
         [this]() { return atrous_pass_->reload_shader(slang_session_); });
+}
+
+void Application::pre_transition_persistent_images(rr::rhi::CommandRecorder recorder)
+{
+    if (accumulate_pass_)
+    {
+        const rr::rhi::ImageBarrier to_general{
+            .image_handle = accumulate_pass_->accumulated_image_handle(),
+            .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+            .src_access = rr::rhi::AccessFlags::None,
+            .dst_stage = rr::rhi::PipelineStage::ComputeShader,
+            .dst_access = rr::rhi::AccessFlags::ShaderRead | rr::rhi::AccessFlags::ShaderWrite,
+            .old_layout = rr::rhi::ImageLayout::Undefined,
+            .new_layout = rr::rhi::ImageLayout::General,
+            .subresource = {
+                .aspect = rr::rhi::ImageAspect::Color,
+                .base_mip = 0,
+                .mip_count = rr::rhi::kRemainingMipLevels,
+                .base_layer = 0,
+                .layer_count = rr::rhi::kRemainingArrayLayers,
+            },
+        };
+        recorder.pipeline_barrier({&to_general, 1});
+    }
+
+    if (gbuffer_pass_)
+        gbuffer_pass_->pre_transition_to_general(recorder);
+    if (restir_di_pass_)
+        restir_di_pass_->pre_transition_to_general(recorder);
+    if (restir_gi_pass_)
+        restir_gi_pass_->pre_transition_to_general(recorder);
+    if (atrous_pass_)
+        atrous_pass_->pre_transition_to_general(recorder);
 }
 
 void Application::render_frame()
@@ -617,37 +621,9 @@ void Application::recreate_swapchain()
 
     // Recreated persistent images are back in UNDEFINED, but the bindless heap is
     // bound before pass execution each frame. Transition them up front again.
-    one_time_submit([this](rr::rhi::CommandRecorder recorder)
+    device_.one_time_submit([this](rr::rhi::CommandRecorder recorder)
     {
-        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
-
-        if (accumulate_pass_)
-        {
-            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-            b.srcAccessMask       = 0;
-            b.dstStageMask        = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.dstAccessMask       = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-            b.oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-            b.newLayout           = VK_IMAGE_LAYOUT_GENERAL;
-            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            b.image               = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
-            b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-            VkDependencyInfo dep{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers    = &b;
-            vkCmdPipelineBarrier2(cmd, &dep);
-        }
-
-        if (gbuffer_pass_)
-            gbuffer_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
-        if (restir_di_pass_)
-            restir_di_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
-        if (restir_gi_pass_)
-            restir_gi_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
-        if (atrous_pass_)
-            atrous_pass_->pre_transition_to_general(rr::rhi::CommandRecorder{static_cast<void*>(cmd)});
+        pre_transition_persistent_images(recorder);
     });
 }
 
@@ -707,7 +683,7 @@ void Application::reload_scene_cornell()
     scene_.upload(device_, bindless_registry_,
         [this](std::function<void(rr::rhi::CommandRecorder)> fn)
         {
-            one_time_submit(fn);
+            device_.one_time_submit(fn);
         });
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
     camera_ = rr::scene::Camera{};
@@ -742,7 +718,7 @@ void Application::reload_scene_gltf(const std::string& path)
     scene_.upload(device_, bindless_registry_,
         [this](std::function<void(rr::rhi::CommandRecorder)> fn)
         {
-            one_time_submit(fn);
+            device_.one_time_submit(fn);
         });
     camera_ = rr::scene::Camera{};
     camera_.on_resize(static_cast<float>(width_) / static_cast<float>(height_));
@@ -753,42 +729,6 @@ void Application::reload_scene_gltf(const std::string& path)
     if (restir_di_pass_) restir_di_pass_->reset_history();
     if (restir_gi_pass_) restir_gi_pass_->reset_history();
     rr::core::log()->info("[Scene] Loaded '{}'", current_scene_name_);
-}
-
-void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> fn)
-{
-    const VkDevice vk_device = rr::rhi::from_opaque_handle<VkDevice>(device_.device());
-    const VkQueue graphics_queue = rr::rhi::from_opaque_handle<VkQueue>(device_.graphics_queue());
-
-    // Allocate a temporary command buffer from the pool
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool        = rr::rhi::from_opaque_handle<VkCommandPool>(command_buffer_.pool());
-    alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
-
-    VkCommandBuffer tmp_cmd = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(vk_device, &alloc_info, &tmp_cmd) != VK_SUCCESS)
-        throw std::runtime_error("one_time_submit: vkAllocateCommandBuffers failed.");
-
-    VkCommandBufferBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(tmp_cmd, &begin_info);
-
-    fn(rr::rhi::CommandRecorder{static_cast<void*>(tmp_cmd)});
-
-    vkEndCommandBuffer(tmp_cmd);
-
-    VkSubmitInfo submit_info{};
-    submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers    = &tmp_cmd;
-    vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(graphics_queue);
-
-    const VkCommandPool one_time_pool = rr::rhi::from_opaque_handle<VkCommandPool>(command_buffer_.pool());
-    vkFreeCommandBuffers(vk_device, one_time_pool, 1, &tmp_cmd);
 }
 
 void Application::capture_screenshot()
@@ -815,7 +755,7 @@ void Application::capture_screenshot()
     VkImage src = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
 
     // GPU commands: transition accumulated image to TRANSFER_SRC, copy, transition back.
-    one_time_submit([&](rr::rhi::CommandRecorder recorder)
+    device_.one_time_submit([&](rr::rhi::CommandRecorder recorder)
     {
         VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
         // GENERAL → TRANSFER_SRC_OPTIMAL
@@ -919,7 +859,7 @@ void Application::compute_mse()
     const VkImage img_pt = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
     const VkImage img_ri_vk = rr::rhi::from_handle<VkImage>(img_ri);
 
-    one_time_submit([&](rr::rhi::CommandRecorder recorder)
+    device_.one_time_submit([&](rr::rhi::CommandRecorder recorder)
     {
         VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
         // Helper lambda — captures nothing from outer compute_mse; all by param.

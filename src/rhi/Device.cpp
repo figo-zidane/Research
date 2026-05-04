@@ -45,6 +45,11 @@ namespace
     return from_opaque_handle<VkQueue>(handle);
 }
 
+[[nodiscard]] VkCommandPool as_vk_command_pool(CommandPoolHandle handle)
+{
+    return from_opaque_handle<VkCommandPool>(handle);
+}
+
 [[nodiscard]] VmaAllocator as_vma_allocator(AllocatorHandle handle)
 {
     return from_opaque_handle<VmaAllocator>(handle);
@@ -292,6 +297,80 @@ void Device::submit_frame(CommandRecorder recorder, const Frame& frame, const Sw
     }
 }
 
+void Device::one_time_submit(const std::function<void(CommandRecorder)>& record_commands) const
+{
+    if (device_ == nullptr || graphics_queue_ == nullptr || one_time_pool_ == nullptr)
+    {
+        throw std::runtime_error("one_time_submit requires an initialized Device.");
+    }
+    if (!record_commands)
+    {
+        throw std::runtime_error("one_time_submit requires a recording callback.");
+    }
+
+    VkCommandBufferAllocateInfo alloc_info{};
+    alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.commandPool        = as_vk_command_pool(one_time_pool_);
+    alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = 1;
+
+    VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+    if (vkAllocateCommandBuffers(as_vk_device(device_), &alloc_info, &command_buffer) != VK_SUCCESS)
+    {
+        throw std::runtime_error("one_time_submit: vkAllocateCommandBuffers failed.");
+    }
+
+    const auto free_command_buffer = [&]() {
+        if (command_buffer != VK_NULL_HANDLE)
+        {
+            vkFreeCommandBuffers(as_vk_device(device_), as_vk_command_pool(one_time_pool_), 1, &command_buffer);
+            command_buffer = VK_NULL_HANDLE;
+        }
+    };
+
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    if (vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS)
+    {
+        free_command_buffer();
+        throw std::runtime_error("one_time_submit: vkBeginCommandBuffer failed.");
+    }
+
+    try
+    {
+        record_commands(CommandRecorder{static_cast<void*>(command_buffer)});
+    }
+    catch (...)
+    {
+        free_command_buffer();
+        throw;
+    }
+
+    if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS)
+    {
+        free_command_buffer();
+        throw std::runtime_error("one_time_submit: vkEndCommandBuffer failed.");
+    }
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers    = &command_buffer;
+    if (vkQueueSubmit(as_vk_queue(graphics_queue_), 1, &submit_info, VK_NULL_HANDLE) != VK_SUCCESS)
+    {
+        free_command_buffer();
+        throw std::runtime_error("one_time_submit: vkQueueSubmit failed.");
+    }
+    if (vkQueueWaitIdle(as_vk_queue(graphics_queue_)) != VK_SUCCESS)
+    {
+        free_command_buffer();
+        throw std::runtime_error("one_time_submit: vkQueueWaitIdle failed.");
+    }
+
+    free_command_buffer();
+}
+
 void Device::create_device_with_surface_handle(SurfaceHandle surface)
 {
     if (instance_ == nullptr)
@@ -310,6 +389,18 @@ void Device::create_device_with_surface_handle(SurfaceHandle surface)
     VkQueue graphics_queue = VK_NULL_HANDLE;
     vkGetDeviceQueue(as_vk_device(device_), queue_families_.graphics_compute, 0, &graphics_queue);
     graphics_queue_ = to_opaque_handle<QueueHandle>(graphics_queue);
+
+    VkCommandPoolCreateInfo pool_info{};
+    pool_info.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    pool_info.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    pool_info.queueFamilyIndex = queue_families_.graphics_compute;
+
+    VkCommandPool one_time_pool = VK_NULL_HANDLE;
+    if (vkCreateCommandPool(as_vk_device(device_), &pool_info, nullptr, &one_time_pool) != VK_SUCCESS)
+    {
+        throw std::runtime_error("Failed to create one-time command pool.");
+    }
+    one_time_pool_ = to_opaque_handle<CommandPoolHandle>(one_time_pool);
 
     // Create the VMA allocator now that we have the device and volk function
     // pointers loaded.  We hand volk's proc-addr functions to VMA so it can
@@ -565,6 +656,12 @@ void Device::log_enabled_features() const
 
 void Device::shutdown()
 {
+    if (one_time_pool_ != nullptr && device_ != nullptr)
+    {
+        vkDestroyCommandPool(as_vk_device(device_), as_vk_command_pool(one_time_pool_), nullptr);
+        one_time_pool_ = nullptr;
+    }
+
     if (allocator_ != nullptr)
     {
         vmaDestroyAllocator(as_vma_allocator(allocator_));
@@ -577,6 +674,7 @@ void Device::shutdown()
         device_ = nullptr;
     }
     graphics_queue_ = nullptr;
+    one_time_pool_ = nullptr;
     physical_device_ = nullptr;
     physical_device_name_.clear();
     physical_device_api_version_ = 0;
