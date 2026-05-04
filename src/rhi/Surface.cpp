@@ -19,7 +19,7 @@ void Surface::initialize(const Device& device, NativeWindowHandle window)
     {
         throw std::runtime_error("Surface is already initialized.");
     }
-    if (device.instance() == VK_NULL_HANDLE)
+    if (device.instance() == nullptr)
     {
         throw std::runtime_error("Cannot create a surface before the Vulkan instance exists.");
     }

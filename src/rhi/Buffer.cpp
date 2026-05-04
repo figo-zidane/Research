@@ -2,6 +2,7 @@
 
 #include "core/Log.h"
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
@@ -66,7 +67,7 @@ void Buffer::create(Device& device, const BufferDesc& desc)
     alloc_info.flags = to_vma_allocation_flags(desc.alloc_flags);
 
     VmaAllocationInfo alloc_result{};
-    if (vmaCreateBuffer(device.allocator(), &buf_info, &alloc_info,
+    if (vmaCreateBuffer(vulkan::get_allocator(device), &buf_info, &alloc_info,
                         &buffer_, &allocation_, &alloc_result) != VK_SUCCESS)
     {
         throw std::runtime_error("vmaCreateBuffer failed.");
@@ -81,7 +82,7 @@ void Buffer::create(Device& device, const BufferDesc& desc)
         VkBufferDeviceAddressInfo addr_info{};
         addr_info.sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
         addr_info.buffer = buffer_;
-        device_address_ = vkGetBufferDeviceAddress(device.device(), &addr_info);
+        device_address_ = vkGetBufferDeviceAddress(vulkan::get_device(device), &addr_info);
     }
 
     if (desc.debug_name)
@@ -91,7 +92,7 @@ void Buffer::create(Device& device, const BufferDesc& desc)
         name_info.objectType   = VK_OBJECT_TYPE_BUFFER;
         name_info.objectHandle = handle();
         name_info.pObjectName  = desc.debug_name;
-        vkSetDebugUtilsObjectNameEXT(device.device(), &name_info);
+        vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &name_info);
     }
 }
 
@@ -101,7 +102,7 @@ void Buffer::destroy(Device& device)
     {
         return;
     }
-    vmaDestroyBuffer(device.allocator(), buffer_, allocation_);
+    vmaDestroyBuffer(vulkan::get_allocator(device), buffer_, allocation_);
     buffer_         = VK_NULL_HANDLE;
     allocation_     = nullptr;
     size_           = 0;
@@ -115,7 +116,7 @@ void* Buffer::map(Device& device)
     {
         return mapped_;
     }
-    if (vmaMapMemory(device.allocator(), allocation_, &mapped_) != VK_SUCCESS)
+    if (vmaMapMemory(vulkan::get_allocator(device), allocation_, &mapped_) != VK_SUCCESS)
     {
         return nullptr;
     }
@@ -128,7 +129,7 @@ void Buffer::unmap(Device& device)
     {
         return;
     }
-    vmaUnmapMemory(device.allocator(), allocation_);
+    vmaUnmapMemory(vulkan::get_allocator(device), allocation_);
     mapped_ = nullptr;
 }
 

@@ -5,6 +5,12 @@
 
 namespace rr::rhi
 {
+using InstanceHandle      = struct InstanceImpl*;
+using PhysicalDeviceHandle = struct PhysicalDeviceImpl*;
+using LogicalDeviceHandle = struct LogicalDeviceImpl*;
+using QueueHandle         = struct QueueImpl*;
+using AllocatorHandle     = struct AllocatorImpl*;
+using DebugMessengerHandle = struct DebugMessengerImpl*;
 using CommandBufferHandle = struct CommandBufferImpl*;
 using CommandPoolHandle   = struct CommandPoolImpl*;
 using SemaphoreHandle     = struct SemaphoreImpl*;

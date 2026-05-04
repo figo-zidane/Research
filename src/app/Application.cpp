@@ -49,9 +49,9 @@ void Application::initialize()
 
 void Application::shutdown()
 {
-    if (device_.device() != VK_NULL_HANDLE)
+    if (device_.device() != nullptr)
     {
-        vkDeviceWaitIdle(device_.device());
+        device_.wait_idle();
     }
 
     if (gbuffer_pass_)    { gbuffer_pass_->shutdown(device_);    gbuffer_pass_    = nullptr; }
@@ -110,7 +110,7 @@ void Application::main_loop()
 
         render_frame();
     }
-    vkDeviceWaitIdle(device_.device());
+    device_.wait_idle();
 }
 
 void Application::initialize_window()
@@ -314,10 +314,12 @@ void Application::render_frame()
     frame_.wait_for_in_flight(frame_index);
 
     uint32_t image_index = 0;
+    const VkDevice vk_device = rr::rhi::from_opaque_handle<VkDevice>(device_.device());
+    const VkQueue graphics_queue = rr::rhi::from_opaque_handle<VkQueue>(device_.graphics_queue());
     const VkSwapchainKHR swapchain_handle = rr::rhi::from_opaque_handle<VkSwapchainKHR>(swapchain_.handle());
     const VkSemaphore image_available = rr::rhi::from_opaque_handle<VkSemaphore>(frame_.image_available_semaphore(frame_index));
     VkResult acquire = vkAcquireNextImageKHR(
-        device_.device(), swapchain_handle, UINT64_MAX,
+        vk_device, swapchain_handle, UINT64_MAX,
         image_available, VK_NULL_HANDLE, &image_index);
     if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
     {
@@ -545,7 +547,7 @@ void Application::render_frame()
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores    = &render_finished;
     const VkFence in_flight_fence = rr::rhi::from_opaque_handle<VkFence>(frame_.in_flight_fence(frame_index));
-    if (vkQueueSubmit(device_.graphics_queue(), 1, &submit, in_flight_fence) != VK_SUCCESS)
+    if (vkQueueSubmit(graphics_queue, 1, &submit, in_flight_fence) != VK_SUCCESS)
     {
         throw std::runtime_error("vkQueueSubmit failed.");
     }
@@ -560,7 +562,7 @@ void Application::render_frame()
     present.pSwapchains        = &swap;
     present.pImageIndices      = &image_index;
 
-    const VkResult present_result = vkQueuePresentKHR(device_.graphics_queue(), &present);
+    const VkResult present_result = vkQueuePresentKHR(graphics_queue, &present);
     if (present_result == VK_ERROR_OUT_OF_DATE_KHR ||
         present_result == VK_SUBOPTIMAL_KHR         ||
         framebuffer_resized_)
@@ -593,7 +595,7 @@ void Application::recreate_swapchain()
         glfwWaitEvents();
         glfwGetFramebufferSize(window_, &fb_w, &fb_h);
     }
-    vkDeviceWaitIdle(device_.device());
+    device_.wait_idle();
     const uint32_t previous_image_count = swapchain_.image_count();
     swapchain_.recreate(static_cast<uint32_t>(fb_w), static_cast<uint32_t>(fb_h));
     const bool swapchain_image_count_changed = swapchain_.image_count() != previous_image_count;
@@ -733,7 +735,7 @@ void Application::glfw_drop_callback(GLFWwindow* window, int count, const char**
 
 void Application::reload_scene_cornell()
 {
-    vkDeviceWaitIdle(device_.device());
+    device_.wait_idle();
     scene_.destroy(device_);
     scene_.clear_cpu_data();
     scene_.build_cornell_box();
@@ -758,7 +760,7 @@ void Application::reload_scene_cornell()
 void Application::reload_scene_gltf(const std::string& path)
 {
     if (path.empty()) return;
-    vkDeviceWaitIdle(device_.device());
+    device_.wait_idle();
     scene_.destroy(device_);
     scene_.clear_cpu_data();
     if (!rr::scene::GltfLoader::load(path, scene_))
@@ -790,6 +792,9 @@ void Application::reload_scene_gltf(const std::string& path)
 
 void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> fn)
 {
+    const VkDevice vk_device = rr::rhi::from_opaque_handle<VkDevice>(device_.device());
+    const VkQueue graphics_queue = rr::rhi::from_opaque_handle<VkQueue>(device_.graphics_queue());
+
     // Allocate a temporary command buffer from the pool
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -798,7 +803,7 @@ void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> 
     alloc_info.commandBufferCount = 1;
 
     VkCommandBuffer tmp_cmd = VK_NULL_HANDLE;
-    if (vkAllocateCommandBuffers(device_.device(), &alloc_info, &tmp_cmd) != VK_SUCCESS)
+    if (vkAllocateCommandBuffers(vk_device, &alloc_info, &tmp_cmd) != VK_SUCCESS)
         throw std::runtime_error("one_time_submit: vkAllocateCommandBuffers failed.");
 
     VkCommandBufferBeginInfo begin_info{};
@@ -814,11 +819,11 @@ void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> 
     submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers    = &tmp_cmd;
-    vkQueueSubmit(device_.graphics_queue(), 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(device_.graphics_queue());
+    vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphics_queue);
 
     const VkCommandPool one_time_pool = rr::rhi::from_opaque_handle<VkCommandPool>(command_buffer_.pool());
-    vkFreeCommandBuffers(device_.device(), one_time_pool, 1, &tmp_cmd);
+    vkFreeCommandBuffers(vk_device, one_time_pool, 1, &tmp_cmd);
 }
 
 void Application::capture_screenshot()
@@ -826,7 +831,7 @@ void Application::capture_screenshot()
     if (!accumulate_pass_) return;
 
     // Wait for all GPU work to complete before reading back.
-    vkDeviceWaitIdle(device_.device());
+    device_.wait_idle();
 
     const rr::rhi::Extent2D ext = swapchain_.extent();
     const uint32_t   pixel_count = ext.width * ext.height;

@@ -1,6 +1,7 @@
 #include "rhi/CommandBuffer.h"
 
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 
 #include <stdexcept>
 
@@ -38,7 +39,7 @@ void CommandBuffer::initialize(Device& device)
     for (uint32_t i = 0; i < kFramesInFlight; ++i)
     {
         VkCommandPool pool = VK_NULL_HANDLE;
-        if (vkCreateCommandPool(device.device(), &pool_info, nullptr, &pool) != VK_SUCCESS)
+        if (vkCreateCommandPool(vulkan::get_device(device), &pool_info, nullptr, &pool) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create per-frame command pool.");
         }
@@ -50,7 +51,7 @@ void CommandBuffer::initialize(Device& device)
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         alloc_info.commandBufferCount = 1;
         VkCommandBuffer buffer = VK_NULL_HANDLE;
-        if (vkAllocateCommandBuffers(device.device(), &alloc_info, &buffer) != VK_SUCCESS)
+        if (vkAllocateCommandBuffers(vulkan::get_device(device), &alloc_info, &buffer) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to allocate per-frame command buffer.");
         }
@@ -60,7 +61,7 @@ void CommandBuffer::initialize(Device& device)
 
 void CommandBuffer::shutdown()
 {
-    if (device_ == nullptr || device_->device() == VK_NULL_HANDLE)
+    if (device_ == nullptr || device_->device() == nullptr)
     {
         return;
     }
@@ -68,7 +69,7 @@ void CommandBuffer::shutdown()
     {
         if (pools_[i] != nullptr)
         {
-            vkDestroyCommandPool(device_->device(), as_vk_command_pool(pools_[i]), nullptr);
+            vkDestroyCommandPool(vulkan::get_device(*device_), as_vk_command_pool(pools_[i]), nullptr);
             pools_[i] = nullptr;
         }
         buffers_[i] = nullptr;
@@ -78,7 +79,7 @@ void CommandBuffer::shutdown()
 
 CommandRecorder CommandBuffer::begin_frame(uint32_t frame_index)
 {
-    vkResetCommandPool(device_->device(), as_vk_command_pool(pools_[frame_index]), 0);
+    vkResetCommandPool(vulkan::get_device(*device_), as_vk_command_pool(pools_[frame_index]), 0);
 
     VkCommandBuffer cmd = as_vk_command_buffer(buffers_[frame_index]);
     VkCommandBufferBeginInfo begin{};

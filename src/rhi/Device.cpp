@@ -22,6 +22,41 @@ namespace rr::rhi
 {
 namespace
 {
+[[nodiscard]] VkInstance as_vk_instance(InstanceHandle handle)
+{
+    return from_opaque_handle<VkInstance>(handle);
+}
+
+[[nodiscard]] VkPhysicalDevice as_vk_physical_device(PhysicalDeviceHandle handle)
+{
+    return from_opaque_handle<VkPhysicalDevice>(handle);
+}
+
+[[nodiscard]] VkDevice as_vk_device(LogicalDeviceHandle handle)
+{
+    return from_opaque_handle<VkDevice>(handle);
+}
+
+[[nodiscard]] VkQueue as_vk_queue(QueueHandle handle)
+{
+    return from_opaque_handle<VkQueue>(handle);
+}
+
+[[nodiscard]] VmaAllocator as_vma_allocator(AllocatorHandle handle)
+{
+    return from_opaque_handle<VmaAllocator>(handle);
+}
+
+[[nodiscard]] VkDebugUtilsMessengerEXT as_vk_debug_messenger(DebugMessengerHandle handle)
+{
+    return from_opaque_handle<VkDebugUtilsMessengerEXT>(handle);
+}
+
+[[nodiscard]] VkSurfaceKHR as_vk_surface(SurfaceHandle handle)
+{
+    return from_opaque_handle<VkSurfaceKHR>(handle);
+}
+
 constexpr std::array<const char*, 1> kValidationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
@@ -134,7 +169,7 @@ Device::~Device()
 
 void Device::create_instance(const CreateInfo& create_info)
 {
-    if (instance_ != VK_NULL_HANDLE)
+    if (instance_ != nullptr)
     {
         throw std::runtime_error("Vulkan instance is already initialized.");
     }
@@ -181,10 +216,12 @@ void Device::create_instance(const CreateInfo& create_info)
         instance_create_info.ppEnabledLayerNames = kValidationLayers.data();
     }
 
-    if (vkCreateInstance(&instance_create_info, nullptr, &instance_) != VK_SUCCESS)
+    VkInstance instance = VK_NULL_HANDLE;
+    if (vkCreateInstance(&instance_create_info, nullptr, &instance) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create Vulkan instance.");
     }
+    instance_ = to_opaque_handle<InstanceHandle>(instance);
 
     rr::core::log()->info(
         "Created Vulkan instance. Loader API {}.{}.{}",
@@ -200,7 +237,7 @@ void Device::create_instance(const CreateInfo& create_info)
         rr::core::log()->info("Validation layer enabled: {}", kValidationLayers[0]);
     }
 
-    volkLoadInstance(instance_);
+    volkLoadInstance(as_vk_instance(instance_));
 
     if (validation_enabled_)
     {
@@ -219,25 +256,27 @@ void Device::create_device_with_surface(const Surface& surface)
         throw std::runtime_error("create_device_with_surface requires a Surface created from this Device instance.");
     }
 
-    create_device_with_surface(from_opaque_handle<VkSurfaceKHR>(surface.surface_));
+    create_device_with_surface_handle(surface.surface_);
 }
 
-void Device::create_device_with_surface(VkSurfaceKHR surface)
+void Device::create_device_with_surface_handle(SurfaceHandle surface)
 {
-    if (instance_ == VK_NULL_HANDLE)
+    if (instance_ == nullptr)
     {
         throw std::runtime_error("create_device_with_surface called before create_instance.");
     }
-    if (surface == VK_NULL_HANDLE)
+    if (surface == nullptr)
     {
         throw std::runtime_error("create_device_with_surface requires a non-null VkSurfaceKHR.");
     }
 
     pick_physical_device(surface);
     create_logical_device();
-    volkLoadDevice(device_);
+    volkLoadDevice(as_vk_device(device_));
 
-    vkGetDeviceQueue(device_, queue_families_.graphics_compute, 0, &graphics_queue_);
+    VkQueue graphics_queue = VK_NULL_HANDLE;
+    vkGetDeviceQueue(as_vk_device(device_), queue_families_.graphics_compute, 0, &graphics_queue);
+    graphics_queue_ = to_opaque_handle<QueueHandle>(graphics_queue);
 
     // Create the VMA allocator now that we have the device and volk function
     // pointers loaded.  We hand volk's proc-addr functions to VMA so it can
@@ -248,18 +287,20 @@ void Device::create_device_with_surface(VkSurfaceKHR surface)
 
     VmaAllocatorCreateInfo vma_info{};
     vma_info.vulkanApiVersion = VK_API_VERSION_1_4;
-    vma_info.physicalDevice   = physical_device_;
-    vma_info.device           = device_;
-    vma_info.instance         = instance_;
+    vma_info.physicalDevice   = as_vk_physical_device(physical_device_);
+    vma_info.device           = as_vk_device(device_);
+    vma_info.instance         = as_vk_instance(instance_);
     vma_info.pVulkanFunctions = &vma_funcs;
     // BUFFER_DEVICE_ADDRESS_BIT is required so VMA can obtain device addresses
     // for buffers allocated with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT.
     vma_info.flags            = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
-    if (vmaCreateAllocator(&vma_info, &allocator_) != VK_SUCCESS)
+    VmaAllocator allocator = nullptr;
+    if (vmaCreateAllocator(&vma_info, &allocator) != VK_SUCCESS)
     {
         throw std::runtime_error("vmaCreateAllocator failed.");
     }
+    allocator_ = to_opaque_handle<AllocatorHandle>(allocator);
     rr::core::log()->info("VMA allocator created.");
 
     log_enabled_features();
@@ -278,29 +319,33 @@ void Device::create_debug_messenger()
         VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     info.pfnUserCallback = &debug_callback;
 
-    if (vkCreateDebugUtilsMessengerEXT(instance_, &info, nullptr, &debug_messenger_) != VK_SUCCESS)
+    VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
+    if (vkCreateDebugUtilsMessengerEXT(as_vk_instance(instance_), &info, nullptr, &debug_messenger) != VK_SUCCESS)
     {
         rr::core::log()->warn("Failed to create VkDebugUtilsMessengerEXT (validation messages will be silent).");
-        debug_messenger_ = VK_NULL_HANDLE;
+        debug_messenger_ = nullptr;
+        return;
     }
+    debug_messenger_ = to_opaque_handle<DebugMessengerHandle>(debug_messenger);
 }
 
-void Device::pick_physical_device(VkSurfaceKHR surface)
+void Device::pick_physical_device(SurfaceHandle surface)
 {
     uint32_t count = 0;
-    vkEnumeratePhysicalDevices(instance_, &count, nullptr);
+    vkEnumeratePhysicalDevices(as_vk_instance(instance_), &count, nullptr);
     if (count == 0)
     {
         throw std::runtime_error("No Vulkan-capable physical device found.");
     }
     std::vector<VkPhysicalDevice> devices(count);
-    vkEnumeratePhysicalDevices(instance_, &count, devices.data());
+    vkEnumeratePhysicalDevices(as_vk_instance(instance_), &count, devices.data());
 
     const std::vector<const char*> required(kRequiredDeviceExtensions.begin(), kRequiredDeviceExtensions.end());
 
     VkPhysicalDevice fallback = VK_NULL_HANDLE;
     uint32_t fallback_queue = UINT32_MAX;
-    VkPhysicalDeviceProperties fallback_props{};
+    std::string fallback_name;
+    uint32_t fallback_api_version = 0;
 
     for (VkPhysicalDevice device : devices)
     {
@@ -329,7 +374,7 @@ void Device::pick_physical_device(VkSurfaceKHR surface)
         {
             continue;
         }
-        const uint32_t queue = find_graphics_present_queue(device, surface);
+        const uint32_t queue = find_graphics_present_queue(device, as_vk_surface(surface));
         if (queue == UINT32_MAX)
         {
             continue;
@@ -337,8 +382,9 @@ void Device::pick_physical_device(VkSurfaceKHR surface)
 
         if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
         {
-            physical_device_ = device;
-            physical_device_properties_ = props;
+            physical_device_ = to_opaque_handle<PhysicalDeviceHandle>(device);
+            physical_device_name_ = props.deviceName;
+            physical_device_api_version_ = props.apiVersion;
             queue_families_.graphics_compute = queue;
             break;
         }
@@ -346,18 +392,20 @@ void Device::pick_physical_device(VkSurfaceKHR surface)
         {
             fallback = device;
             fallback_queue = queue;
-            fallback_props = props;
+            fallback_name = props.deviceName;
+            fallback_api_version = props.apiVersion;
         }
     }
 
-    if (physical_device_ == VK_NULL_HANDLE && fallback != VK_NULL_HANDLE)
+    if (physical_device_ == nullptr && fallback != VK_NULL_HANDLE)
     {
-        physical_device_ = fallback;
-        physical_device_properties_ = fallback_props;
+        physical_device_ = to_opaque_handle<PhysicalDeviceHandle>(fallback);
+        physical_device_name_ = std::move(fallback_name);
+        physical_device_api_version_ = fallback_api_version;
         queue_families_.graphics_compute = fallback_queue;
     }
 
-    if (physical_device_ == VK_NULL_HANDLE)
+    if (physical_device_ == nullptr)
     {
         throw std::runtime_error(
             "No Vulkan 1.4 physical device with required RT and descriptor-heap extensions was found.");
@@ -365,10 +413,10 @@ void Device::pick_physical_device(VkSurfaceKHR surface)
 
     rr::core::log()->info(
         "Selected physical device: {} (driver API {}.{}.{})",
-        physical_device_properties_.deviceName,
-        VK_API_VERSION_MAJOR(physical_device_properties_.apiVersion),
-        VK_API_VERSION_MINOR(physical_device_properties_.apiVersion),
-        VK_API_VERSION_PATCH(physical_device_properties_.apiVersion));
+        physical_device_name_,
+        VK_API_VERSION_MAJOR(physical_device_api_version_),
+        VK_API_VERSION_MINOR(physical_device_api_version_),
+        VK_API_VERSION_PATCH(physical_device_api_version_));
     rr::core::log()->info(
         "Graphics+Compute+Present queue family: {}", queue_families_.graphics_compute);
 }
@@ -413,7 +461,7 @@ void Device::create_logical_device()
     features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     features2.pNext = &v11;
 
-    vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+    vkGetPhysicalDeviceFeatures2(as_vk_physical_device(physical_device_), &features2);
 
     auto require = [](VkBool32 supported, const char* what) {
         if (!supported)
@@ -458,10 +506,12 @@ void Device::create_logical_device()
     device_info.ppEnabledExtensionNames = enabled_device_extensions_.data();
     // Device-level layer enablement is deprecated; instance layers cover validation.
 
-    if (vkCreateDevice(physical_device_, &device_info, nullptr, &device_) != VK_SUCCESS)
+    VkDevice device = VK_NULL_HANDLE;
+    if (vkCreateDevice(as_vk_physical_device(physical_device_), &device_info, nullptr, &device) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create Vulkan logical device.");
     }
+    device_ = to_opaque_handle<LogicalDeviceHandle>(device);
 }
 
 void Device::log_enabled_features() const
@@ -484,34 +534,45 @@ void Device::shutdown()
 {
     if (allocator_ != nullptr)
     {
-        vmaDestroyAllocator(allocator_);
+        vmaDestroyAllocator(as_vma_allocator(allocator_));
         allocator_ = nullptr;
     }
 
-    if (device_ != VK_NULL_HANDLE)
+    if (device_ != nullptr)
     {
-        vkDestroyDevice(device_, nullptr);
-        device_ = VK_NULL_HANDLE;
+        vkDestroyDevice(as_vk_device(device_), nullptr);
+        device_ = nullptr;
     }
-    graphics_queue_ = VK_NULL_HANDLE;
-    physical_device_ = VK_NULL_HANDLE;
+    graphics_queue_ = nullptr;
+    physical_device_ = nullptr;
+    physical_device_name_.clear();
+    physical_device_api_version_ = 0;
 
-    if (debug_messenger_ != VK_NULL_HANDLE && instance_ != VK_NULL_HANDLE)
+    if (debug_messenger_ != nullptr && instance_ != nullptr)
     {
-        vkDestroyDebugUtilsMessengerEXT(instance_, debug_messenger_, nullptr);
-        debug_messenger_ = VK_NULL_HANDLE;
+        vkDestroyDebugUtilsMessengerEXT(as_vk_instance(instance_), as_vk_debug_messenger(debug_messenger_), nullptr);
+        debug_messenger_ = nullptr;
     }
 
-    if (instance_ != VK_NULL_HANDLE)
+    if (instance_ != nullptr)
     {
-        vkDestroyInstance(instance_, nullptr);
-        instance_ = VK_NULL_HANDLE;
+        vkDestroyInstance(as_vk_instance(instance_), nullptr);
+        instance_ = nullptr;
     }
 
     enabled_instance_extensions_.clear();
     enabled_device_extensions_.clear();
     validation_enabled_ = false;
     queue_families_ = {};
+}
+
+void Device::wait_idle() const
+{
+    if (device_ == nullptr)
+    {
+        return;
+    }
+    vkDeviceWaitIdle(as_vk_device(device_));
 }
 
 bool Device::validation_layers_available() const

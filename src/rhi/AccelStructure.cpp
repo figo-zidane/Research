@@ -8,6 +8,7 @@
 #include "core/Log.h"
 #include "rhi/Buffer.h"
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/VulkanTypeCasts.h"
 
 #include <stdexcept>
@@ -44,7 +45,7 @@ void AccelStructure::destroy(Device& device)
 {
     if (handle_ != VK_NULL_HANDLE)
     {
-        vkDestroyAccelerationStructureKHR(device.device(), handle_, nullptr);
+        vkDestroyAccelerationStructureKHR(vulkan::get_device(device), handle_, nullptr);
         handle_ = VK_NULL_HANDLE;
     }
     if (buffer_.is_valid())
@@ -136,7 +137,7 @@ AccelStructure build_blas(Device& device,
     VkAccelerationStructureBuildSizesInfoKHR size_info{};
     size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
     vkGetAccelerationStructureBuildSizesKHR(
-        device.device(),
+        vulkan::get_device(device),
         VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
         &build_info, &primitive_count, &size_info);
 
@@ -159,7 +160,7 @@ AccelStructure build_blas(Device& device,
         create_info.buffer = from_handle<VkBuffer>(blas.buffer_.handle());
         create_info.size   = size_info.accelerationStructureSize;
         create_info.type   = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        if (vkCreateAccelerationStructureKHR(device.device(), &create_info, nullptr, &blas.handle_) != VK_SUCCESS)
+        if (vkCreateAccelerationStructureKHR(vulkan::get_device(device), &create_info, nullptr, &blas.handle_) != VK_SUCCESS)
             throw std::runtime_error("vkCreateAccelerationStructureKHR (BLAS) failed.");
     }
 
@@ -168,7 +169,7 @@ AccelStructure build_blas(Device& device,
         VkAccelerationStructureDeviceAddressInfoKHR addr_info{};
         addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
         addr_info.accelerationStructure = blas.handle_;
-        blas.device_address_ = vkGetAccelerationStructureDeviceAddressKHR(device.device(), &addr_info);
+        blas.device_address_ = vkGetAccelerationStructureDeviceAddressKHR(vulkan::get_device(device), &addr_info);
     }
 
     // Allocate scratch
@@ -259,7 +260,7 @@ AccelStructure build_tlas(Device& device,
     VkAccelerationStructureBuildSizesInfoKHR size_info{};
     size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
     vkGetAccelerationStructureBuildSizesKHR(
-        device.device(),
+        vulkan::get_device(device),
         VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
         &build_info, &instance_count, &size_info);
 
@@ -281,7 +282,7 @@ AccelStructure build_tlas(Device& device,
         create_info.buffer = from_handle<VkBuffer>(tlas.buffer_.handle());
         create_info.size   = size_info.accelerationStructureSize;
         create_info.type   = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-        if (vkCreateAccelerationStructureKHR(device.device(), &create_info, nullptr, &tlas.handle_) != VK_SUCCESS)
+        if (vkCreateAccelerationStructureKHR(vulkan::get_device(device), &create_info, nullptr, &tlas.handle_) != VK_SUCCESS)
             throw std::runtime_error("vkCreateAccelerationStructureKHR (TLAS) failed.");
     }
 
@@ -289,7 +290,7 @@ AccelStructure build_tlas(Device& device,
         VkAccelerationStructureDeviceAddressInfoKHR addr_info{};
         addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
         addr_info.accelerationStructure = tlas.handle_;
-        tlas.device_address_ = vkGetAccelerationStructureDeviceAddressKHR(device.device(), &addr_info);
+        tlas.device_address_ = vkGetAccelerationStructureDeviceAddressKHR(vulkan::get_device(device), &addr_info);
     }
 
     scratch_out = allocate_scratch(device, size_info.buildScratchSize);

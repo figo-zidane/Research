@@ -1,15 +1,11 @@
 #pragma once
 
+#include "rhi/Handles.h"
 #include "rhi/Platform.h"
 
 #include <cstdint>
 #include <string>
 #include <vector>
-
-#include <volk.h>
-
-// Forward-declare VmaAllocator so users of Device.h don't pull in all of VMA.
-VK_DEFINE_HANDLE(VmaAllocator)
 
 namespace rr::rhi
 {
@@ -42,31 +38,33 @@ public:
     // logical device is created.
     void create_instance(const CreateInfo& create_info);
     void create_device_with_surface(const Surface& surface);
-    void create_device_with_surface(VkSurfaceKHR surface);
     void shutdown();
+    void wait_idle() const;
 
-    [[nodiscard]] VkInstance instance() const noexcept { return instance_; }
-    [[nodiscard]] VkPhysicalDevice physical_device() const noexcept { return physical_device_; }
-    [[nodiscard]] VkDevice device() const noexcept { return device_; }
-    [[nodiscard]] VkQueue graphics_queue() const noexcept { return graphics_queue_; }
+    [[nodiscard]] InstanceHandle instance() const noexcept { return instance_; }
+    [[nodiscard]] PhysicalDeviceHandle physical_device() const noexcept { return physical_device_; }
+    [[nodiscard]] LogicalDeviceHandle device() const noexcept { return device_; }
+    [[nodiscard]] QueueHandle graphics_queue() const noexcept { return graphics_queue_; }
     [[nodiscard]] uint32_t graphics_queue_family() const noexcept { return queue_families_.graphics_compute; }
-    [[nodiscard]] VmaAllocator allocator() const noexcept { return allocator_; }
+    [[nodiscard]] AllocatorHandle allocator() const noexcept { return allocator_; }
 
 private:
     [[nodiscard]] bool validation_layers_available() const;
+    void create_device_with_surface_handle(SurfaceHandle surface);
     void create_debug_messenger();
-    void pick_physical_device(VkSurfaceKHR surface);
+    void pick_physical_device(SurfaceHandle surface);
     void create_logical_device();
     void log_enabled_features() const;
 
-    VkInstance instance_ = VK_NULL_HANDLE;
-    VkDebugUtilsMessengerEXT debug_messenger_ = VK_NULL_HANDLE;
-    VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
-    VkDevice device_ = VK_NULL_HANDLE;
-    VkQueue graphics_queue_ = VK_NULL_HANDLE;
+    InstanceHandle instance_ = nullptr;
+    DebugMessengerHandle debug_messenger_ = nullptr;
+    PhysicalDeviceHandle physical_device_ = nullptr;
+    LogicalDeviceHandle device_ = nullptr;
+    QueueHandle graphics_queue_ = nullptr;
     QueueFamilies queue_families_{};
-    VkPhysicalDeviceProperties physical_device_properties_{};
-    VmaAllocator allocator_ = nullptr;
+    std::string physical_device_name_;
+    uint32_t physical_device_api_version_ = 0;
+    AllocatorHandle allocator_ = nullptr;
 
     bool validation_enabled_ = false;
     std::vector<const char*> enabled_instance_extensions_;

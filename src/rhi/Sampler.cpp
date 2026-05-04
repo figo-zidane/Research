@@ -1,6 +1,7 @@
 #include "rhi/Sampler.h"
 
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/VulkanTypeCasts.h"
 
 #include <stdexcept>
@@ -31,7 +32,7 @@ void Sampler::create(Device& device, const SamplerDesc& desc)
         throw std::runtime_error("Sampler::create called on an already-created sampler.");
     }
     const VkSamplerCreateInfo info = to_vk_sampler_create_info(desc);
-    if (vkCreateSampler(device.device(), &info, nullptr, &sampler_) != VK_SUCCESS)
+    if (vkCreateSampler(vulkan::get_device(device), &info, nullptr, &sampler_) != VK_SUCCESS)
     {
         throw std::runtime_error("vkCreateSampler failed.");
     }
@@ -43,7 +44,7 @@ void Sampler::destroy(Device& device)
     {
         return;
     }
-    vkDestroySampler(device.device(), sampler_, nullptr);
+    vkDestroySampler(vulkan::get_device(device), sampler_, nullptr);
     sampler_ = VK_NULL_HANDLE;
 }
 

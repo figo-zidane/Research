@@ -5,7 +5,6 @@
 #include "rhi/Device.h"
 
 #include <imgui.h>
-#include <volk.h>
 
 namespace rr::shader
 {
@@ -42,7 +41,7 @@ bool HotReload::pump(rr::rhi::Device& device)
         core::log()->info("[HotReload] changed: {}", f.filename().string());
 
     // Ensure GPU is idle before we destroy and recreate any pipelines.
-    vkDeviceWaitIdle(device.device());
+    device.wait_idle();
 
     bool any_reloaded = false;
     last_error_.clear();

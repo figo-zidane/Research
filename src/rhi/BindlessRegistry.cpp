@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "rhi/AccelStructure.h"
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
@@ -34,7 +35,7 @@ void BindlessRegistry::initialize(Device& device)
     VkPhysicalDeviceProperties2 dev_props2{};
     dev_props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     dev_props2.pNext = &heap_props;
-    vkGetPhysicalDeviceProperties2(device.physical_device(), &dev_props2);
+    vkGetPhysicalDeviceProperties2(vulkan::get_physical_device(device), &dev_props2);
 
     img_stride_  = heap_props.imageDescriptorSize;
     buf_stride_  = heap_props.bufferDescriptorSize;
@@ -148,7 +149,7 @@ void BindlessRegistry::write_resource(Device&                            device,
                        ? img_stride_
                        : buf_stride_;
 
-    if (vkWriteResourceDescriptorsEXT(device.device(), 1, &info, &dest) != VK_SUCCESS)
+    if (vkWriteResourceDescriptorsEXT(vulkan::get_device(device), 1, &info, &dest) != VK_SUCCESS)
     {
         throw std::runtime_error("vkWriteResourceDescriptorsEXT failed.");
     }
@@ -271,7 +272,7 @@ uint32_t BindlessRegistry::register_sampler(Device& device, const SamplerDesc& d
     dest.size = smpl_stride_;
 
     const VkSamplerCreateInfo info = to_vk_sampler_create_info(desc);
-    if (vkWriteSamplerDescriptorsEXT(device.device(), 1, &info, &dest) != VK_SUCCESS)
+    if (vkWriteSamplerDescriptorsEXT(vulkan::get_device(device), 1, &info, &dest) != VK_SUCCESS)
     {
         throw std::runtime_error("vkWriteSamplerDescriptorsEXT failed.");
     }

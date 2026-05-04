@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "rhi/BindlessRegistry.h"
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/VulkanTypeCasts.h"
 #include "shader/ShaderModule.h"
 #include "shader/ShaderReflection.h"
@@ -172,7 +173,7 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
         throw std::runtime_error("ComputePipeline: entry_index out of range.");
     }
 
-    VkShaderModule vk_mod = create_shader_module(device.device(), desc.module->spv_code(desc.entry_index));
+    VkShaderModule vk_mod = create_shader_module(vulkan::get_device(device), desc.module->spv_code(desc.entry_index));
 
     // Build heap-mapping chain.  Per spec, VkShaderDescriptorSetAndBindingMappingInfoEXT
     // must be placed in VkPipelineShaderStageCreateInfo::pNext (not the layout).
@@ -203,9 +204,9 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
     ci.layout = VK_NULL_HANDLE;
 
     const VkResult result = vkCreateComputePipelines(
-        device.device(), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
+        vulkan::get_device(device), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
 
-    vkDestroyShaderModule(device.device(), vk_mod, nullptr);
+    vkDestroyShaderModule(vulkan::get_device(device), vk_mod, nullptr);
 
     if (result != VK_SUCCESS)
     {
@@ -219,7 +220,7 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
         ni.objectType   = VK_OBJECT_TYPE_PIPELINE;
         ni.objectHandle = reinterpret_cast<uint64_t>(pipeline_);
         ni.pObjectName  = desc.debug_name;
-        vkSetDebugUtilsObjectNameEXT(device.device(), &ni);
+        vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
     }
 
     rr::core::log()->info("ComputePipeline: created '{}'",
@@ -229,7 +230,7 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
 void ComputePipeline::destroy(Device& device)
 {
     if (pipeline_ == VK_NULL_HANDLE) { return; }
-    vkDestroyPipeline(device.device(), pipeline_, nullptr);
+    vkDestroyPipeline(vulkan::get_device(device), pipeline_, nullptr);
     pipeline_ = VK_NULL_HANDLE;
 }
 
@@ -255,8 +256,8 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
 
     // Build two VkShaderModules (one per entry point) since each has its own SPIR-V blob.
     // Slang emits SPIR-V with the entry point name "main" for every function.
-    VkShaderModule vk_vs = create_shader_module(device.device(), desc.module->spv_code(desc.vert_entry));
-    VkShaderModule vk_fs = create_shader_module(device.device(), desc.module->spv_code(desc.frag_entry));
+    VkShaderModule vk_vs = create_shader_module(vulkan::get_device(device), desc.module->spv_code(desc.vert_entry));
+    VkShaderModule vk_fs = create_shader_module(vulkan::get_device(device), desc.module->spv_code(desc.frag_entry));
 
     // Build heap-mapping chain.  Per spec, VkShaderDescriptorSetAndBindingMappingInfoEXT
     // must be placed in each VkPipelineShaderStageCreateInfo::pNext (not the layout).
@@ -366,10 +367,10 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
     ci.renderPass          = VK_NULL_HANDLE;
 
     const VkResult result = vkCreateGraphicsPipelines(
-        device.device(), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
+        vulkan::get_device(device), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
 
-    vkDestroyShaderModule(device.device(), vk_vs, nullptr);
-    vkDestroyShaderModule(device.device(), vk_fs, nullptr);
+    vkDestroyShaderModule(vulkan::get_device(device), vk_vs, nullptr);
+    vkDestroyShaderModule(vulkan::get_device(device), vk_fs, nullptr);
 
     if (result != VK_SUCCESS)
     {
@@ -383,7 +384,7 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
         ni.objectType   = VK_OBJECT_TYPE_PIPELINE;
         ni.objectHandle = reinterpret_cast<uint64_t>(pipeline_);
         ni.pObjectName  = desc.debug_name;
-        vkSetDebugUtilsObjectNameEXT(device.device(), &ni);
+        vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
     }
 
     rr::core::log()->info("GraphicsPipeline: created '{}'",
@@ -393,7 +394,7 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
 void GraphicsPipeline::destroy(Device& device)
 {
     if (pipeline_ == VK_NULL_HANDLE) { return; }
-    vkDestroyPipeline(device.device(), pipeline_, nullptr);
+    vkDestroyPipeline(vulkan::get_device(device), pipeline_, nullptr);
     pipeline_ = VK_NULL_HANDLE;
 }
 
@@ -421,7 +422,7 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     std::vector<VkPipelineShaderStageCreateInfo> stages;
     for (size_t i = 0; i < eps.size(); ++i)
     {
-        VkShaderModule m = create_shader_module(device.device(), desc.module->spv_code(static_cast<uint32_t>(i)));
+        VkShaderModule m = create_shader_module(vulkan::get_device(device), desc.module->spv_code(static_cast<uint32_t>(i)));
         vk_mods.push_back(m);
         stages.push_back(stage_info(to_vk_stage(eps[i].stage), m, "main"));
     }
@@ -489,10 +490,10 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     ci.layout                       = VK_NULL_HANDLE;
 
     const VkResult result = vkCreateRayTracingPipelinesKHR(
-        device.device(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
+        vulkan::get_device(device), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
 
     for (VkShaderModule m : vk_mods)
-        vkDestroyShaderModule(device.device(), m, nullptr);
+        vkDestroyShaderModule(vulkan::get_device(device), m, nullptr);
 
     if (result != VK_SUCCESS)
     {
@@ -505,14 +506,14 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     VkPhysicalDeviceProperties2 props2{};
     props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     props2.pNext = &rt_props;
-    vkGetPhysicalDeviceProperties2(device.physical_device(), &props2);
+    vkGetPhysicalDeviceProperties2(vulkan::get_physical_device(device), &props2);
 
     sbt_handle_size_ = rt_props.shaderGroupHandleSize;
     group_count_     = static_cast<uint32_t>(vk_groups.size());
     sbt_handles_.resize(static_cast<size_t>(sbt_handle_size_) * group_count_);
 
     if (vkGetRayTracingShaderGroupHandlesKHR(
-            device.device(), pipeline_, 0, group_count_,
+            vulkan::get_device(device), pipeline_, 0, group_count_,
             sbt_handles_.size(), sbt_handles_.data()) != VK_SUCCESS)
     {
         rr::core::log()->warn("RtPipeline: vkGetRayTracingShaderGroupHandlesKHR failed.");
@@ -525,7 +526,7 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
         ni.objectType   = VK_OBJECT_TYPE_PIPELINE;
         ni.objectHandle = reinterpret_cast<uint64_t>(pipeline_);
         ni.pObjectName  = desc.debug_name;
-        vkSetDebugUtilsObjectNameEXT(device.device(), &ni);
+        vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
     }
 
     rr::core::log()->info("RtPipeline: created '{}' ({} groups)",
@@ -536,7 +537,7 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
 void RtPipeline::destroy(Device& device)
 {
     if (pipeline_ == VK_NULL_HANDLE) { return; }
-    vkDestroyPipeline(device.device(), pipeline_, nullptr);
+    vkDestroyPipeline(vulkan::get_device(device), pipeline_, nullptr);
     pipeline_        = VK_NULL_HANDLE;
     sbt_handles_.clear();
     sbt_handle_size_ = 0;

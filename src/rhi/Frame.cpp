@@ -1,6 +1,7 @@
 #include "rhi/Frame.h"
 
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 
 #include <stdexcept>
 
@@ -38,8 +39,8 @@ void Frame::initialize(Device& device)
     {
         VkSemaphore image_available = VK_NULL_HANDLE;
         VkFence in_flight = VK_NULL_HANDLE;
-        if (vkCreateSemaphore(device_->device(), &sem_info, nullptr, &image_available) != VK_SUCCESS ||
-            vkCreateFence(device_->device(), &fence_info, nullptr, &in_flight) != VK_SUCCESS)
+        if (vkCreateSemaphore(vulkan::get_device(*device_), &sem_info, nullptr, &image_available) != VK_SUCCESS ||
+            vkCreateFence(vulkan::get_device(*device_), &fence_info, nullptr, &in_flight) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create per-frame sync primitives.");
         }
@@ -51,18 +52,18 @@ void Frame::initialize(Device& device)
 void Frame::wait_for_in_flight(uint32_t frame_index) const
 {
     const VkFence fence = as_vk_fence(in_flight_[frame_index]);
-    vkWaitForFences(device_->device(), 1, &fence, VK_TRUE, UINT64_MAX);
+    vkWaitForFences(vulkan::get_device(*device_), 1, &fence, VK_TRUE, UINT64_MAX);
 }
 
 void Frame::reset_in_flight_fence(uint32_t frame_index) const
 {
     const VkFence fence = as_vk_fence(in_flight_[frame_index]);
-    vkResetFences(device_->device(), 1, &fence);
+    vkResetFences(vulkan::get_device(*device_), 1, &fence);
 }
 
 void Frame::shutdown()
 {
-    if (device_ == nullptr || device_->device() == VK_NULL_HANDLE)
+    if (device_ == nullptr || device_->device() == nullptr)
     {
         return;
     }
@@ -70,12 +71,12 @@ void Frame::shutdown()
     {
         if (image_available_[i] != nullptr)
         {
-            vkDestroySemaphore(device_->device(), as_vk_semaphore(image_available_[i]), nullptr);
+            vkDestroySemaphore(vulkan::get_device(*device_), as_vk_semaphore(image_available_[i]), nullptr);
             image_available_[i] = nullptr;
         }
         if (in_flight_[i] != nullptr)
         {
-            vkDestroyFence(device_->device(), as_vk_fence(in_flight_[i]), nullptr);
+            vkDestroyFence(vulkan::get_device(*device_), as_vk_fence(in_flight_[i]), nullptr);
             in_flight_[i] = nullptr;
         }
     }

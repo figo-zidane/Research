@@ -9,6 +9,7 @@
 
 #include "render/FrameContext.h"
 #include "rhi/Device.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/Swapchain.h"
 #include "core/Log.h"
 
@@ -33,11 +34,11 @@ void initialize_vulkan_backend(rr::rhi::Device& device,
 
     ImGui_ImplVulkan_InitInfo init_info{};
     init_info.ApiVersion      = VK_API_VERSION_1_4;
-    init_info.Instance        = device.instance();
-    init_info.PhysicalDevice  = device.physical_device();
-    init_info.Device          = device.device();
+    init_info.Instance        = rr::rhi::vulkan::get_instance(device);
+    init_info.PhysicalDevice  = rr::rhi::vulkan::get_physical_device(device);
+    init_info.Device          = rr::rhi::vulkan::get_device(device);
     init_info.QueueFamily     = device.graphics_queue_family();
-    init_info.Queue           = device.graphics_queue();
+    init_info.Queue           = rr::rhi::vulkan::get_graphics_queue(device);
     init_info.DescriptorPoolSize = 32;
     init_info.MinImageCount   = 2;
     init_info.ImageCount      = swapchain.image_count();

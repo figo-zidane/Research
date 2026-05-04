@@ -3,6 +3,7 @@
 #include "core/Log.h"
 #include "rhi/Device.h"
 #include "rhi/Image.h"
+#include "rhi/internal/VulkanAccess.h"
 #include "rhi/Surface.h"
 #include "rhi/Types.h"
 
@@ -110,10 +111,10 @@ void Swapchain::initialize(Device& device, const Surface& surface, uint32_t widt
     surface_ = surface.surface_;
 
     const VkSurfaceKHR vk_surface = as_vk_surface(surface_);
-    const VkSurfaceFormatKHR surface_format = pick_surface_format(device.physical_device(), vk_surface);
+    const VkSurfaceFormatKHR surface_format = pick_surface_format(vulkan::get_physical_device(device), vk_surface);
     image_format_ = static_cast<Format>(surface_format.format);
     color_space_ = static_cast<uint32_t>(surface_format.colorSpace);
-    present_mode_ = static_cast<uint32_t>(pick_present_mode(device.physical_device(), vk_surface));
+    present_mode_ = static_cast<uint32_t>(pick_present_mode(vulkan::get_physical_device(device), vk_surface));
     create_swapchain(width, height);
 }
 
@@ -130,7 +131,7 @@ void Swapchain::recreate(uint32_t width, uint32_t height)
 void Swapchain::create_swapchain(uint32_t width, uint32_t height)
 {
     VkSurfaceCapabilitiesKHR caps{};
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device_->physical_device(), as_vk_surface(surface_), &caps);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vulkan::get_physical_device(*device_), as_vk_surface(surface_), &caps);
     const VkExtent2D vk_extent = pick_extent(caps, width, height);
     extent_ = {vk_extent.width, vk_extent.height};
 
@@ -157,16 +158,16 @@ void Swapchain::create_swapchain(uint32_t width, uint32_t height)
     info.oldSwapchain = VK_NULL_HANDLE;
 
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-    if (vkCreateSwapchainKHR(device_->device(), &info, nullptr, &swapchain) != VK_SUCCESS)
+    if (vkCreateSwapchainKHR(vulkan::get_device(*device_), &info, nullptr, &swapchain) != VK_SUCCESS)
     {
         throw std::runtime_error("Failed to create VkSwapchainKHR.");
     }
     swapchain_ = to_opaque_handle<SwapchainHandle>(swapchain);
 
     uint32_t image_count = 0;
-    vkGetSwapchainImagesKHR(device_->device(), swapchain, &image_count, nullptr);
+    vkGetSwapchainImagesKHR(vulkan::get_device(*device_), swapchain, &image_count, nullptr);
     std::vector<VkImage> vk_images(image_count);
-    vkGetSwapchainImagesKHR(device_->device(), swapchain, &image_count, vk_images.data());
+    vkGetSwapchainImagesKHR(vulkan::get_device(*device_), swapchain, &image_count, vk_images.data());
 
     images_.clear();
     images_.resize(image_count);
@@ -184,7 +185,7 @@ void Swapchain::create_swapchain(uint32_t width, uint32_t height)
                                  VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
         view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VkImageView image_view = VK_NULL_HANDLE;
-        if (vkCreateImageView(device_->device(), &view_info, nullptr, &image_view) != VK_SUCCESS)
+        if (vkCreateImageView(vulkan::get_device(*device_), &view_info, nullptr, &image_view) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create swapchain image view.");
         }
@@ -195,7 +196,7 @@ void Swapchain::create_swapchain(uint32_t width, uint32_t height)
             extent_);
 
         VkSemaphore render_finished = VK_NULL_HANDLE;
-        if (vkCreateSemaphore(device_->device(), &sem_info, nullptr, &render_finished) != VK_SUCCESS)
+        if (vkCreateSemaphore(vulkan::get_device(*device_), &sem_info, nullptr, &render_finished) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create per-image render-finished semaphore.");
         }
@@ -211,7 +212,7 @@ void Swapchain::create_swapchain(uint32_t width, uint32_t height)
 
 void Swapchain::destroy_swapchain()
 {
-    if (device_ == nullptr || device_->device() == VK_NULL_HANDLE)
+    if (device_ == nullptr || device_->device() == nullptr)
     {
         return;
     }
@@ -224,14 +225,14 @@ void Swapchain::destroy_swapchain()
     {
         if (sem != nullptr)
         {
-            vkDestroySemaphore(device_->device(), as_vk_semaphore(sem), nullptr);
+            vkDestroySemaphore(vulkan::get_device(*device_), as_vk_semaphore(sem), nullptr);
         }
     }
     render_finished_.clear();
 
     if (swapchain_ != nullptr)
     {
-        vkDestroySwapchainKHR(device_->device(), as_vk_swapchain(swapchain_), nullptr);
+        vkDestroySwapchainKHR(vulkan::get_device(*device_), as_vk_swapchain(swapchain_), nullptr);
         swapchain_ = nullptr;
     }
 }
