@@ -2,6 +2,8 @@
 
 #include "core/Log.h"
 #include "rhi/Device.h"
+#include "rhi/Surface.h"
+#include "rhi/Types.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -69,6 +71,20 @@ void Swapchain::initialize(Device& device, VkSurfaceKHR surface, uint32_t width,
     surface_format_ = pick_surface_format(device.physical_device(), surface);
     present_mode_ = pick_present_mode(device.physical_device(), surface);
     create_swapchain(width, height);
+}
+
+void Swapchain::initialize(Device& device, const Surface& surface, uint32_t width, uint32_t height)
+{
+    if (!surface.is_valid())
+    {
+        throw std::runtime_error("Swapchain::initialize requires an initialized Surface.");
+    }
+    if (surface.instance_ != to_handle(device.instance()))
+    {
+        throw std::runtime_error("Swapchain::initialize requires a Surface created from this Device instance.");
+    }
+
+    initialize(device, from_handle<VkSurfaceKHR>(surface.surface_), width, height);
 }
 
 void Swapchain::recreate(uint32_t width, uint32_t height)

@@ -81,11 +81,7 @@ void Application::shutdown()
 
     bindless_registry_.shutdown(device_);
 
-    if (surface_ != 0 && device_.instance() != VK_NULL_HANDLE)
-    {
-        vkDestroySurfaceKHR(device_.instance(), rr::rhi::from_handle<VkSurfaceKHR>(surface_), nullptr);
-        surface_ = 0;
-    }
+    surface_.shutdown();
 
     device_.shutdown();
 
@@ -146,34 +142,21 @@ void Application::initialize_window()
 
 void Application::initialize_vulkan()
 {
-    uint32_t extension_count = 0;
-    const char** extension_names = glfwGetRequiredInstanceExtensions(&extension_count);
-    if (extension_names == nullptr || extension_count == 0)
-    {
-        throw std::runtime_error("GLFW did not provide Vulkan instance extensions.");
-    }
-    std::vector<const char*> required_extensions(extension_names, extension_names + extension_count);
-
     // Device is brought up in two phases: the surface (needed for queue
     // present-capability checks) can only be created once the instance exists.
     rr::rhi::Device::CreateInfo create_info{};
-    create_info.application_name             = title_;
-    create_info.required_instance_extensions = std::move(required_extensions);
-    create_info.enable_validation            = true;
+    create_info.application_name  = title_;
+    create_info.presentation      = rr::rhi::PresentationSupport::Window;
+    create_info.enable_validation = true;
 
     device_.create_instance(create_info);
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    if (glfwCreateWindowSurface(device_.instance(), window_, nullptr, &surface) != VK_SUCCESS)
-    {
-        throw std::runtime_error("Failed to create Vulkan window surface.");
-    }
-    surface_ = rr::rhi::to_handle(surface);
-    device_.create_device_with_surface(surface);
+    surface_.initialize(device_, {.window = static_cast<void*>(window_)});
+    device_.create_device_with_surface(surface_);
 
     int fb_w = 0;
     int fb_h = 0;
     glfwGetFramebufferSize(window_, &fb_w, &fb_h);
-    swapchain_.initialize(device_, surface,
+    swapchain_.initialize(device_, surface_,
                           static_cast<uint32_t>(fb_w),
                           static_cast<uint32_t>(fb_h));
     frame_.initialize(device_);

@@ -1,6 +1,9 @@
 #include "rhi/Device.h"
 
 #include "core/Log.h"
+#include "rhi/PlatformInternal.h"
+#include "rhi/Surface.h"
+#include "rhi/Types.h"
 
 #include <algorithm>
 #include <array>
@@ -88,6 +91,17 @@ bool device_supports_extensions(const std::vector<VkExtensionProperties>& availa
     return true;
 }
 
+void append_unique(std::vector<const char*>& extensions, const char* name)
+{
+    const bool exists = std::find_if(extensions.begin(), extensions.end(), [name](const char* candidate) {
+        return std::strcmp(candidate, name) == 0;
+    }) != extensions.end();
+    if (!exists)
+    {
+        extensions.push_back(name);
+    }
+}
+
 uint32_t find_graphics_present_queue(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
     uint32_t count = 0;
@@ -140,12 +154,12 @@ void Device::create_instance(const CreateInfo& create_info)
         throw std::runtime_error("Vulkan 1.4 loader is required.");
     }
 
-    enabled_instance_extensions_ = create_info.required_instance_extensions;
+    enabled_instance_extensions_ = platform::required_instance_extensions(create_info.presentation);
     validation_enabled_ = create_info.enable_validation && validation_layers_available();
 
     if (validation_enabled_)
     {
-        enabled_instance_extensions_.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        append_unique(enabled_instance_extensions_, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
     VkApplicationInfo application_info{};
@@ -192,6 +206,20 @@ void Device::create_instance(const CreateInfo& create_info)
     {
         create_debug_messenger();
     }
+}
+
+void Device::create_device_with_surface(const Surface& surface)
+{
+    if (!surface.is_valid())
+    {
+        throw std::runtime_error("create_device_with_surface requires an initialized Surface.");
+    }
+    if (surface.instance_ != to_handle(instance_))
+    {
+        throw std::runtime_error("create_device_with_surface requires a Surface created from this Device instance.");
+    }
+
+    create_device_with_surface(from_handle<VkSurfaceKHR>(surface.surface_));
 }
 
 void Device::create_device_with_surface(VkSurfaceKHR surface)

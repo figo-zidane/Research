@@ -13,7 +13,9 @@ find_package(imgui CONFIG REQUIRED)
 add_library(rhi STATIC
   rhi/vma_impl.cpp
   rhi/Device.cpp
+  rhi/PlatformVulkan.cpp
   rhi/Swapchain.cpp
+  rhi/Surface.cpp
   rhi/Frame.cpp
   rhi/CommandBuffer.cpp
   rhi/CommandRecorder.cpp

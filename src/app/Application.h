@@ -8,6 +8,7 @@
 #include "rhi/CommandBuffer.h"
 #include "rhi/Device.h"
 #include "rhi/Frame.h"
+#include "rhi/Surface.h"
 #include "rhi/Swapchain.h"
 #include "scene/Camera.h"
 #include "scene/Scene.h"
@@ -80,6 +81,7 @@ private:
     // ── Core subsystems ───────────────────────────────────────────────────
     GLFWwindow*               window_   = nullptr;
     rr::rhi::Device           device_;
+    rr::rhi::Surface          surface_;
     rr::rhi::Swapchain        swapchain_;
     rr::rhi::Frame            frame_;
     rr::rhi::CommandBuffer    command_buffer_;
@@ -101,7 +103,6 @@ private:
     rr::passes::restir_gi::ReSTIRGIPass*    restir_gi_pass_  = nullptr;
     rr::passes::denoise::AtrousPass*        atrous_pass_     = nullptr;
 
-    uint64_t     surface_ = 0;
     std::string  title_   = "Research Renderer";
     int          width_   = 1600;
     int          height_  = 900;

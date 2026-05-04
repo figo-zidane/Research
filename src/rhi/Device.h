@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rhi/Platform.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -11,13 +13,15 @@ VK_DEFINE_HANDLE(VmaAllocator)
 
 namespace rr::rhi
 {
+class Surface;
+
 class Device
 {
 public:
     struct CreateInfo
     {
         std::string application_name;
-        std::vector<const char*> required_instance_extensions;
+        PresentationSupport presentation = PresentationSupport::None;
         bool enable_validation = true;
     };
 
@@ -37,6 +41,7 @@ public:
     // the surface is needed to pick a present-capable queue family before the
     // logical device is created.
     void create_instance(const CreateInfo& create_info);
+    void create_device_with_surface(const Surface& surface);
     void create_device_with_surface(VkSurfaceKHR surface);
     void shutdown();
 

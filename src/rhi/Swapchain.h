@@ -8,6 +8,7 @@
 namespace rr::rhi
 {
 class Device;
+class Surface;
 
 class Swapchain
 {
@@ -19,6 +20,7 @@ public:
     Swapchain& operator=(Swapchain&&) = delete;
     ~Swapchain();
 
+    void initialize(Device& device, const Surface& surface, uint32_t width, uint32_t height);
     void initialize(Device& device, VkSurfaceKHR surface, uint32_t width, uint32_t height);
     void shutdown();
     // Recreate the swapchain in place (e.g. on window resize). Caller must
