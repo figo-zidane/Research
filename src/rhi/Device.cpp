@@ -264,7 +264,7 @@ void Device::create_device_with_surface(const Surface& surface)
         throw std::runtime_error("create_device_with_surface requires a Surface created from this Device instance.");
     }
 
-    create_device_with_surface_handle(surface.surface_);
+    create_device_for_surface(surface.surface_);
 }
 
 void Device::submit_frame(CommandRecorder recorder, const Frame& frame, const Swapchain& swapchain, uint32_t image_index) const
@@ -371,7 +371,7 @@ void Device::one_time_submit(const std::function<void(CommandRecorder)>& record_
     free_command_buffer();
 }
 
-void Device::create_device_with_surface_handle(SurfaceHandle surface)
+void Device::create_device_for_surface(SurfaceHandle surface)
 {
     if (instance_ == nullptr)
     {
@@ -379,7 +379,7 @@ void Device::create_device_with_surface_handle(SurfaceHandle surface)
     }
     if (surface == nullptr)
     {
-        throw std::runtime_error("create_device_with_surface requires a non-null VkSurfaceKHR.");
+        throw std::runtime_error("create_device_with_surface requires a non-null surface handle.");
     }
 
     pick_physical_device(surface);

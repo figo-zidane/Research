@@ -53,16 +53,13 @@ void Application::run()
 void Application::initialize()
 {
     initialize_window();
-    initialize_vulkan();
+    initialize_rhi();
     initialize_renderer();
 }
 
 void Application::shutdown()
 {
-    if (device_.device() != nullptr)
-    {
-        device_.wait_idle();
-    }
+    device_.wait_idle();
 
     if (gbuffer_pass_)    { gbuffer_pass_->shutdown(device_);    gbuffer_pass_    = nullptr; }
     if (pathtracer_pass_) { pathtracer_pass_->shutdown(device_); pathtracer_pass_ = nullptr; }
@@ -150,10 +147,10 @@ void Application::initialize_window()
     rr::core::log()->info("Created window {} ({}x{})", title_, width_, height_);
 }
 
-void Application::initialize_vulkan()
+void Application::initialize_rhi()
 {
-    // Device is brought up in two phases: the surface (needed for queue
-    // present-capability checks) can only be created once the instance exists.
+    // The RHI comes up in two phases: the surface can only be created after
+    // the instance exists, and queue selection depends on that surface.
     rr::rhi::Device::CreateInfo create_info{};
     create_info.application_name  = title_;
     create_info.presentation      = rr::rhi::PresentationSupport::Window;

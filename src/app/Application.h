@@ -51,7 +51,7 @@ private:
     void shutdown();
     void main_loop();
     void initialize_window();
-    void initialize_vulkan();
+    void initialize_rhi();
     void initialize_renderer();
     void render_frame();
     void recreate_swapchain();
@@ -77,6 +77,7 @@ private:
 
     // ── Core subsystems ───────────────────────────────────────────────────
     GLFWwindow*               window_   = nullptr;
+    // Keep device_ before surface_ so the surface is destroyed first.
     rr::rhi::Device           device_;
     rr::rhi::Surface          surface_;
     rr::rhi::Swapchain        swapchain_;

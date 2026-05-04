@@ -56,7 +56,7 @@ public:
 
 private:
     [[nodiscard]] bool validation_layers_available() const;
-    void create_device_with_surface_handle(SurfaceHandle surface);
+    void create_device_for_surface(SurfaceHandle surface);
     void create_debug_messenger();
     void pick_physical_device(SurfaceHandle surface);
     void create_logical_device();
