@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <utility>
 #include <vector>
-#include <volk.h>
 
 #include "rhi/Types.h"
 
@@ -21,6 +20,8 @@ class ShaderReflection;
 
 namespace rr::rhi
 {
+
+inline constexpr uint32_t kShaderUnused = ~0u;
 
 // ── Compute Pipeline ──────────────────────────────────────────────────────────
 
@@ -50,11 +51,11 @@ public:
     // Swap pipeline handles (both must already be destroyed or not yet created).
     void swap(ComputePipeline& other) noexcept { std::swap(pipeline_, other.pipeline_); }
 
-    [[nodiscard]] VkPipeline       handle()  const noexcept { return pipeline_; }
-    [[nodiscard]] bool             is_valid() const noexcept { return pipeline_ != VK_NULL_HANDLE; }
+    [[nodiscard]] uint64_t handle() const noexcept { return pipeline_; }
+    [[nodiscard]] bool     is_valid() const noexcept { return pipeline_ != 0; }
 
 private:
-    VkPipeline       pipeline_      = VK_NULL_HANDLE;
+    uint64_t pipeline_ = 0;
 };
 
 // ── Graphics Pipeline ─────────────────────────────────────────────────────────
@@ -94,11 +95,11 @@ public:
     // Swap pipeline handles (both must already be destroyed or not yet created).
     void swap(GraphicsPipeline& other) noexcept { std::swap(pipeline_, other.pipeline_); }
 
-    [[nodiscard]] VkPipeline handle()   const noexcept { return pipeline_; }
-    [[nodiscard]] bool       is_valid() const noexcept { return pipeline_ != VK_NULL_HANDLE; }
+    [[nodiscard]] uint64_t handle() const noexcept { return pipeline_; }
+    [[nodiscard]] bool     is_valid() const noexcept { return pipeline_ != 0; }
 
 private:
-    VkPipeline pipeline_ = VK_NULL_HANDLE;
+    uint64_t pipeline_ = 0;
 };
 
 // ── Ray-Tracing Pipeline ─────────────────────────────────────────────────────
@@ -106,12 +107,12 @@ private:
 struct RtShaderGroup
 {
     // All indices refer to entry points within the linked module.
-    // Set to VK_SHADER_UNUSED_KHR to leave unused.
-    uint32_t raygen_index        = VK_SHADER_UNUSED_KHR;
-    uint32_t miss_index          = VK_SHADER_UNUSED_KHR;
-    uint32_t closest_hit_index   = VK_SHADER_UNUSED_KHR;
-    uint32_t any_hit_index       = VK_SHADER_UNUSED_KHR;
-    uint32_t intersection_index  = VK_SHADER_UNUSED_KHR;
+    // Leave an entry at kShaderUnused when the group does not use it.
+    uint32_t raygen_index        = kShaderUnused;
+    uint32_t miss_index          = kShaderUnused;
+    uint32_t closest_hit_index   = kShaderUnused;
+    uint32_t any_hit_index       = kShaderUnused;
+    uint32_t intersection_index  = kShaderUnused;
 };
 
 struct RtPipelineDesc
@@ -137,8 +138,8 @@ public:
     void create(Device& device, const RtPipelineDesc& desc);
     void destroy(Device& device);
 
-    [[nodiscard]] VkPipeline handle()   const noexcept { return pipeline_; }
-    [[nodiscard]] bool       is_valid() const noexcept { return pipeline_ != VK_NULL_HANDLE; }
+    [[nodiscard]] uint64_t handle() const noexcept { return pipeline_; }
+    [[nodiscard]] bool     is_valid() const noexcept { return pipeline_ != 0; }
 
     // Returns the raw SBT handle for shader group at the given index.
     // The returned pointer is valid until the pipeline is destroyed.
@@ -147,35 +148,10 @@ public:
     [[nodiscard]] uint32_t       group_count()     const noexcept { return group_count_; }
 
 private:
-    VkPipeline           pipeline_        = VK_NULL_HANDLE;
+    uint64_t             pipeline_        = 0;
     std::vector<uint8_t> sbt_handles_;
     uint32_t             sbt_handle_size_ = 0;
     uint32_t             group_count_     = 0;
 };
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-// Build the VkShaderDescriptorSetAndBindingMappingInfoEXT pNext chain that
-// maps the BindlessHeap arrays to the resource and sampler heaps.
-// Returns a pNext chain that must be kept alive until vkCreateXxxPipeline
-// returns.  All objects are stored in the provided vectors (caller owns them).
-struct HeapMappingChain
-{
-    HeapMappingChain() = default;
-    HeapMappingChain(HeapMappingChain&&) = default;
-    HeapMappingChain& operator=(HeapMappingChain&&) = default;
-    HeapMappingChain(const HeapMappingChain&) = delete;
-    HeapMappingChain& operator=(const HeapMappingChain&) = delete;
-
-    VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info{};
-    std::vector<VkDescriptorSetAndBindingMappingEXT>  set_mappings;
-    std::vector<VkDescriptorMappingSourceConstantOffsetEXT> offset_data;
-
-    const void* pnext() const noexcept { return &mapping_info; }
-};
-
-// Build the heap-mapping chain for a pipeline that uses BindlessHeap.slang.
-// Pass the chain's pnext() into the pipeline create-info's pNext.
-HeapMappingChain build_heap_mapping(const BindlessRegistry& registry);
 
 } // namespace rr::rhi

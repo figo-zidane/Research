@@ -3,7 +3,7 @@
 #include "core/Log.h"
 #include "rhi/Device.h"
 #include "rhi/internal/VulkanAccess.h"
-#include "rhi/VulkanTypeCasts.h"
+#include "rhi/internal/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1

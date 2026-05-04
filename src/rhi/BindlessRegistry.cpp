@@ -4,7 +4,7 @@
 #include "rhi/AccelStructure.h"
 #include "rhi/Device.h"
 #include "rhi/internal/VulkanAccess.h"
-#include "rhi/VulkanTypeCasts.h"
+#include "rhi/internal/VulkanTypeCasts.h"
 
 #define VMA_STATIC_VULKAN_FUNCTIONS  0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
@@ -17,7 +17,7 @@
 namespace
 {
 // Round up 'value' to the next multiple of 'alignment' (must be a power-of-2).
-constexpr VkDeviceSize align_up(VkDeviceSize value, VkDeviceSize alignment) noexcept
+constexpr uint64_t align_up(uint64_t value, uint64_t alignment) noexcept
 {
     return (value + alignment - 1) & ~(alignment - 1);
 }
@@ -25,6 +25,34 @@ constexpr VkDeviceSize align_up(VkDeviceSize value, VkDeviceSize alignment) noex
 
 namespace rr::rhi
 {
+
+namespace
+{
+[[nodiscard]] VkCommandBuffer as_vk_cmd(CommandRecorder recorder)
+{
+    return static_cast<VkCommandBuffer>(recorder.handle());
+}
+
+void write_resource_descriptor(Device&                            device,
+                               void*                              mapped,
+                               uint64_t                           image_stride,
+                               uint64_t                           buffer_stride,
+                               const VkResourceDescriptorInfoEXT& info,
+                               uint64_t                           byte_offset)
+{
+    VkHostAddressRangeEXT dest{};
+    dest.address = static_cast<uint8_t*>(mapped) + byte_offset;
+    dest.size    = (info.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
+                    info.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+                       ? image_stride
+                       : buffer_stride;
+
+    if (vkWriteResourceDescriptorsEXT(vulkan::get_device(device), 1, &info, &dest) != VK_SUCCESS)
+    {
+        throw std::runtime_error("vkWriteResourceDescriptorsEXT failed.");
+    }
+}
+} // namespace
 
 void BindlessRegistry::initialize(Device& device)
 {
@@ -138,23 +166,6 @@ void BindlessRegistry::shutdown(Device& device)
 
 // ── Registration ─────────────────────────────────────────────────────────────
 
-void BindlessRegistry::write_resource(Device&                            device,
-                                       const VkResourceDescriptorInfoEXT& info,
-                                       VkDeviceSize                       byte_offset) const
-{
-    VkHostAddressRangeEXT dest{};
-    dest.address = static_cast<uint8_t*>(resource_heap_.mapped) + byte_offset;
-    dest.size    = (info.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
-                    info.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
-                       ? img_stride_
-                       : buf_stride_;
-
-    if (vkWriteResourceDescriptorsEXT(vulkan::get_device(device), 1, &info, &dest) != VK_SUCCESS)
-    {
-        throw std::runtime_error("vkWriteResourceDescriptorsEXT failed.");
-    }
-}
-
 uint32_t BindlessRegistry::register_texture(Device&            device,
                                              const Image&       image,
                                              Format             format,
@@ -185,7 +196,8 @@ uint32_t BindlessRegistry::register_texture(Device&            device,
     res_info.data.pImage = &img_info;
 
     const uint32_t index = next_texture_++;
-    write_resource(device, res_info, texture_base_ + index * img_stride_);
+    write_resource_descriptor(
+        device, resource_heap_.mapped, img_stride_, buf_stride_, res_info, texture_base_ + index * img_stride_);
     return index;
 }
 
@@ -217,7 +229,8 @@ uint32_t BindlessRegistry::register_storage_image(Device&         device,
     res_info.data.pImage = &img_info;
 
     const uint32_t index = next_storage_++;
-    write_resource(device, res_info, storage_base_ + index * img_stride_);
+    write_resource_descriptor(
+        device, resource_heap_.mapped, img_stride_, buf_stride_, res_info, storage_base_ + index * img_stride_);
     return index;
 }
 
@@ -236,7 +249,8 @@ uint32_t BindlessRegistry::register_buffer(Device& device, const Buffer& buffer)
     res_info.data.pAddressRange = &addr_range;
 
     const uint32_t index = next_scene_buffer_++;
-    write_resource(device, res_info, scene_base_ + index * buf_stride_);
+    write_resource_descriptor(
+        device, resource_heap_.mapped, img_stride_, buf_stride_, res_info, scene_base_ + index * buf_stride_);
     return index;
 }
 
@@ -255,7 +269,8 @@ uint32_t BindlessRegistry::register_accel_struct(Device& device, const AccelStru
     res_info.data.pAddressRange = &addr_range;
 
     const uint32_t index = next_tlas_++;
-    write_resource(device, res_info, tlas_base_ + index * buf_stride_);
+    write_resource_descriptor(
+        device, resource_heap_.mapped, img_stride_, buf_stride_, res_info, tlas_base_ + index * buf_stride_);
     return index;
 }
 
@@ -282,8 +297,10 @@ uint32_t BindlessRegistry::register_sampler(Device& device, const SamplerDesc& d
 
 // ── Per-frame ────────────────────────────────────────────────────────────────
 
-void BindlessRegistry::bind_heaps(VkCommandBuffer cmd) const
+void BindlessRegistry::bind_heaps(CommandRecorder recorder) const
 {
+    const VkCommandBuffer cmd = as_vk_cmd(recorder);
+
     // Bind resource heap.
     VkDeviceAddressRangeEXT res_range{resource_heap_.buf.device_address(),
                                        resource_heap_.buf.size()};
@@ -305,8 +322,10 @@ void BindlessRegistry::bind_heaps(VkCommandBuffer cmd) const
     vkCmdBindSamplerHeapEXT(cmd, &smpl_bind);
 }
 
-void BindlessRegistry::heap_write_barrier(VkCommandBuffer cmd) const
+void BindlessRegistry::heap_write_barrier(CommandRecorder recorder) const
 {
+    const VkCommandBuffer cmd = as_vk_cmd(recorder);
+
     VkMemoryBarrier2 barrier{};
     barrier.sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
     barrier.srcStageMask  = VK_PIPELINE_STAGE_2_HOST_BIT;

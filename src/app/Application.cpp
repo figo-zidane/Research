@@ -29,9 +29,8 @@ namespace
 {
 void bind_frame_heaps(rr::rhi::BindlessRegistry& bindless_registry, rr::rhi::CommandRecorder recorder)
 {
-    auto* cmd = static_cast<VkCommandBuffer>(recorder.handle());
-    bindless_registry.heap_write_barrier(cmd);
-    bindless_registry.bind_heaps(cmd);
+    bindless_registry.heap_write_barrier(recorder);
+    bindless_registry.bind_heaps(recorder);
 }
 }
 
@@ -248,12 +247,11 @@ void Application::initialize_renderer()
         mse_staging_ri_.create(device_, desc);
     }
 
-    // Initialize persistent storage images to VK_IMAGE_LAYOUT_GENERAL before the
-    // first frame.  The bindless heap is bound at the start of each frame; the
-    // Vulkan validation layer checks that every registered image is in the layout
-    // it was registered with.  Without this transition, images that are only
-    // transitioned inside their own execute() would still be UNDEFINED when an
-    // earlier pass dispatches.
+    // Initialize persistent storage images to the general layout before the
+    // first frame. The bindless heap is bound at the start of each frame, so
+    // registered images must already match the layout recorded for them.
+    // Without this transition, images that are only transitioned inside their
+    // own execute() would still be undefined when an earlier pass dispatches.
     device_.one_time_submit([this](rr::rhi::CommandRecorder recorder)
     {
         pre_transition_persistent_images(recorder);

@@ -4,7 +4,7 @@
 #include "rhi/CommandRecorder.h"
 #include "rhi/Device.h"
 #include "rhi/Image.h"
-#include "rhi/VulkanTypeCasts.h"
+#include "rhi/internal/VulkanTypeCasts.h"
 
 #include <volk.h>
 

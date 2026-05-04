@@ -2,7 +2,7 @@
 
 #include "rhi/Image.h"
 #include "rhi/Pipeline.h"
-#include "rhi/VulkanTypeCasts.h"
+#include "rhi/internal/VulkanTypeCasts.h"
 
 #include <array>
 #include <stdexcept>
@@ -42,12 +42,14 @@ namespace
 
 void CommandRecorder::bind_compute_pipeline(const ComputePipeline& pipeline) const
 {
-    vkCmdBindPipeline(as_vk_cmd(*this), VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.handle());
+    vkCmdBindPipeline(
+        as_vk_cmd(*this), VK_PIPELINE_BIND_POINT_COMPUTE, from_handle<VkPipeline>(pipeline.handle()));
 }
 
 void CommandRecorder::bind_graphics_pipeline(const GraphicsPipeline& pipeline) const
 {
-    vkCmdBindPipeline(as_vk_cmd(*this), VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle());
+    vkCmdBindPipeline(
+        as_vk_cmd(*this), VK_PIPELINE_BIND_POINT_GRAPHICS, from_handle<VkPipeline>(pipeline.handle()));
 }
 
 void CommandRecorder::dispatch(uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z) const

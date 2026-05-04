@@ -2,13 +2,11 @@
 
 #include "rhi/SamplerDesc.h"
 
-#include <volk.h>
-
 namespace rr::rhi
 {
 class Device;
 
-// Thin RAII wrapper around VkSampler.
+// Thin RAII wrapper around a sampler object.
 class Sampler
 {
 public:
@@ -22,8 +20,8 @@ public:
     void create(Device& device, const SamplerDesc& desc);
     void destroy(Device& device);
 
-    [[nodiscard]] SamplerHandle handle() const noexcept { return to_handle(sampler_); }
-    [[nodiscard]] bool          is_valid() const noexcept { return sampler_ != VK_NULL_HANDLE; }
+    [[nodiscard]] SamplerHandle handle() const noexcept { return sampler_; }
+    [[nodiscard]] bool          is_valid() const noexcept { return sampler_ != 0; }
 
     // Convenience factory: linear repeat, no anisotropy.
     [[nodiscard]] static SamplerDesc linear_repeat() noexcept;
@@ -31,7 +29,7 @@ public:
     [[nodiscard]] static SamplerDesc nearest_clamp() noexcept;
 
 private:
-    VkSampler sampler_ = VK_NULL_HANDLE;
+    SamplerHandle sampler_ = 0;
 };
 
 } // namespace rr::rhi

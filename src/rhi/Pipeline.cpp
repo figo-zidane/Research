@@ -4,7 +4,7 @@
 #include "rhi/BindlessRegistry.h"
 #include "rhi/Device.h"
 #include "rhi/internal/VulkanAccess.h"
-#include "rhi/VulkanTypeCasts.h"
+#include "rhi/internal/VulkanTypeCasts.h"
 #include "shader/ShaderModule.h"
 #include "shader/ShaderReflection.h"
 
@@ -68,6 +68,21 @@ VkShaderStageFlagBits to_vk_stage(shader::ShaderStage s)
     default:               return VK_SHADER_STAGE_ALL;
     }
 }
+
+struct HeapMappingChain
+{
+    HeapMappingChain() = default;
+    HeapMappingChain(HeapMappingChain&&) = default;
+    HeapMappingChain& operator=(HeapMappingChain&&) = default;
+    HeapMappingChain(const HeapMappingChain&) = delete;
+    HeapMappingChain& operator=(const HeapMappingChain&) = delete;
+
+    VkShaderDescriptorSetAndBindingMappingInfoEXT mapping_info{};
+    std::vector<VkDescriptorSetAndBindingMappingEXT> set_mappings;
+    std::vector<VkDescriptorMappingSourceConstantOffsetEXT> offset_data;
+
+    [[nodiscard]] const void* pnext() const noexcept { return &mapping_info; }
+};
 } // namespace
 
 // ── HeapMappingChain ──────────────────────────────────────────────────────────
@@ -93,7 +108,7 @@ HeapMappingChain build_heap_mapping(const BindlessRegistry& reg)
     chain.offset_data.resize(5);
     chain.set_mappings.resize(5);
 
-    auto make_offset = [](VkDeviceSize heap_offset, VkDeviceSize stride) {
+    auto make_offset = [](uint64_t heap_offset, uint64_t stride) {
         VkDescriptorMappingSourceConstantOffsetEXT off{};
         off.heapOffset       = static_cast<uint32_t>(heap_offset);
         off.heapArrayStride  = static_cast<uint32_t>(stride);
@@ -154,7 +169,7 @@ HeapMappingChain build_heap_mapping(const BindlessRegistry& reg)
 
 void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
 {
-    if (pipeline_ != VK_NULL_HANDLE)
+    if (pipeline_ != 0)
     {
         throw std::runtime_error("ComputePipeline::create called twice.");
     }
@@ -203,8 +218,9 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
     ci.stage  = stage_ci;
     ci.layout = VK_NULL_HANDLE;
 
+    VkPipeline raw_pipeline = VK_NULL_HANDLE;
     const VkResult result = vkCreateComputePipelines(
-        vulkan::get_device(device), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
+        vulkan::get_device(device), VK_NULL_HANDLE, 1, &ci, nullptr, &raw_pipeline);
 
     vkDestroyShaderModule(vulkan::get_device(device), vk_mod, nullptr);
 
@@ -213,12 +229,14 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
         throw std::runtime_error("vkCreateComputePipelines failed.");
     }
 
+    pipeline_ = to_handle(raw_pipeline);
+
     if (desc.debug_name)
     {
         VkDebugUtilsObjectNameInfoEXT ni{};
         ni.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
         ni.objectType   = VK_OBJECT_TYPE_PIPELINE;
-        ni.objectHandle = reinterpret_cast<uint64_t>(pipeline_);
+        ni.objectHandle = pipeline_;
         ni.pObjectName  = desc.debug_name;
         vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
     }
@@ -229,16 +247,16 @@ void ComputePipeline::create(Device& device, const ComputePipelineDesc& desc)
 
 void ComputePipeline::destroy(Device& device)
 {
-    if (pipeline_ == VK_NULL_HANDLE) { return; }
-    vkDestroyPipeline(vulkan::get_device(device), pipeline_, nullptr);
-    pipeline_ = VK_NULL_HANDLE;
+    if (pipeline_ == 0) { return; }
+    vkDestroyPipeline(vulkan::get_device(device), from_handle<VkPipeline>(pipeline_), nullptr);
+    pipeline_ = 0;
 }
 
 // ── GraphicsPipeline ──────────────────────────────────────────────────────────
 
 void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
 {
-    if (pipeline_ != VK_NULL_HANDLE)
+    if (pipeline_ != 0)
     {
         throw std::runtime_error("GraphicsPipeline::create called twice.");
     }
@@ -366,8 +384,9 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
     ci.layout              = VK_NULL_HANDLE;
     ci.renderPass          = VK_NULL_HANDLE;
 
+    VkPipeline raw_pipeline = VK_NULL_HANDLE;
     const VkResult result = vkCreateGraphicsPipelines(
-        vulkan::get_device(device), VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
+        vulkan::get_device(device), VK_NULL_HANDLE, 1, &ci, nullptr, &raw_pipeline);
 
     vkDestroyShaderModule(vulkan::get_device(device), vk_vs, nullptr);
     vkDestroyShaderModule(vulkan::get_device(device), vk_fs, nullptr);
@@ -377,12 +396,14 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
         throw std::runtime_error("vkCreateGraphicsPipelines failed.");
     }
 
+    pipeline_ = to_handle(raw_pipeline);
+
     if (desc.debug_name)
     {
         VkDebugUtilsObjectNameInfoEXT ni{};
         ni.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
         ni.objectType   = VK_OBJECT_TYPE_PIPELINE;
-        ni.objectHandle = reinterpret_cast<uint64_t>(pipeline_);
+        ni.objectHandle = pipeline_;
         ni.pObjectName  = desc.debug_name;
         vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
     }
@@ -393,16 +414,16 @@ void GraphicsPipeline::create(Device& device, const GraphicsPipelineDesc& desc)
 
 void GraphicsPipeline::destroy(Device& device)
 {
-    if (pipeline_ == VK_NULL_HANDLE) { return; }
-    vkDestroyPipeline(vulkan::get_device(device), pipeline_, nullptr);
-    pipeline_ = VK_NULL_HANDLE;
+    if (pipeline_ == 0) { return; }
+    vkDestroyPipeline(vulkan::get_device(device), from_handle<VkPipeline>(pipeline_), nullptr);
+    pipeline_ = 0;
 }
 
 // ── RtPipeline ────────────────────────────────────────────────────────────────
 
 void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
 {
-    if (pipeline_ != VK_NULL_HANDLE)
+    if (pipeline_ != 0)
     {
         throw std::runtime_error("RtPipeline::create called twice.");
     }
@@ -441,12 +462,15 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     // Build shader groups.
     std::vector<VkRayTracingShaderGroupCreateInfoKHR> vk_groups;
     vk_groups.reserve(desc.groups.size());
+    auto to_vk_shader_index = [](uint32_t index) {
+        return index == kShaderUnused ? VK_SHADER_UNUSED_KHR : index;
+    };
     for (const auto& g : desc.groups)
     {
         VkRayTracingShaderGroupCreateInfoKHR vkg{};
         vkg.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
 
-        if (g.raygen_index != VK_SHADER_UNUSED_KHR)
+        if (g.raygen_index != kShaderUnused)
         {
             vkg.type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
             vkg.generalShader      = g.raygen_index;
@@ -454,7 +478,7 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
             vkg.anyHitShader       = VK_SHADER_UNUSED_KHR;
             vkg.intersectionShader = VK_SHADER_UNUSED_KHR;
         }
-        else if (g.miss_index != VK_SHADER_UNUSED_KHR)
+        else if (g.miss_index != kShaderUnused)
         {
             vkg.type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
             vkg.generalShader      = g.miss_index;
@@ -466,9 +490,9 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
         {
             vkg.type               = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
             vkg.generalShader      = VK_SHADER_UNUSED_KHR;
-            vkg.closestHitShader   = g.closest_hit_index;
-            vkg.anyHitShader       = g.any_hit_index;
-            vkg.intersectionShader = g.intersection_index;
+            vkg.closestHitShader   = to_vk_shader_index(g.closest_hit_index);
+            vkg.anyHitShader       = to_vk_shader_index(g.any_hit_index);
+            vkg.intersectionShader = to_vk_shader_index(g.intersection_index);
         }
         vk_groups.push_back(vkg);
     }
@@ -489,8 +513,9 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     ci.maxPipelineRayRecursionDepth = desc.max_recursion_depth;
     ci.layout                       = VK_NULL_HANDLE;
 
+    VkPipeline raw_pipeline = VK_NULL_HANDLE;
     const VkResult result = vkCreateRayTracingPipelinesKHR(
-        vulkan::get_device(device), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_);
+        vulkan::get_device(device), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &ci, nullptr, &raw_pipeline);
 
     for (VkShaderModule m : vk_mods)
         vkDestroyShaderModule(vulkan::get_device(device), m, nullptr);
@@ -499,6 +524,8 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     {
         throw std::runtime_error("vkCreateRayTracingPipelinesKHR failed.");
     }
+
+    pipeline_ = to_handle(raw_pipeline);
 
     // Query SBT handles.
     VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
@@ -513,7 +540,7 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
     sbt_handles_.resize(static_cast<size_t>(sbt_handle_size_) * group_count_);
 
     if (vkGetRayTracingShaderGroupHandlesKHR(
-            vulkan::get_device(device), pipeline_, 0, group_count_,
+            vulkan::get_device(device), raw_pipeline, 0, group_count_,
             sbt_handles_.size(), sbt_handles_.data()) != VK_SUCCESS)
     {
         rr::core::log()->warn("RtPipeline: vkGetRayTracingShaderGroupHandlesKHR failed.");
@@ -524,7 +551,7 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
         VkDebugUtilsObjectNameInfoEXT ni{};
         ni.sType        = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
         ni.objectType   = VK_OBJECT_TYPE_PIPELINE;
-        ni.objectHandle = reinterpret_cast<uint64_t>(pipeline_);
+        ni.objectHandle = pipeline_;
         ni.pObjectName  = desc.debug_name;
         vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
     }
@@ -536,9 +563,9 @@ void RtPipeline::create(Device& device, const RtPipelineDesc& desc)
 
 void RtPipeline::destroy(Device& device)
 {
-    if (pipeline_ == VK_NULL_HANDLE) { return; }
-    vkDestroyPipeline(vulkan::get_device(device), pipeline_, nullptr);
-    pipeline_        = VK_NULL_HANDLE;
+    if (pipeline_ == 0) { return; }
+    vkDestroyPipeline(vulkan::get_device(device), from_handle<VkPipeline>(pipeline_), nullptr);
+    pipeline_        = 0;
     sbt_handles_.clear();
     sbt_handle_size_ = 0;
     group_count_     = 0;

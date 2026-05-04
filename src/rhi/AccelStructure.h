@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <span>
 #include <vector>
-#include <volk.h>
 
 namespace rr::rhi
 {
@@ -47,9 +46,9 @@ public:
 
     void destroy(Device& device);
 
-    [[nodiscard]] AccelStructureHandle handle() const noexcept { return to_handle(handle_); }
+    [[nodiscard]] AccelStructureHandle handle() const noexcept { return handle_; }
     [[nodiscard]] uint64_t             device_address() const noexcept { return device_address_; }
-    [[nodiscard]] bool                 is_valid() const noexcept { return handle_ != VK_NULL_HANDLE; }
+    [[nodiscard]] bool                 is_valid() const noexcept { return handle_ != 0; }
 
     // Non-owning pointer to the backing buffer (owned by AccelStructure)
     [[nodiscard]] const Buffer& buffer() const noexcept { return buffer_; }
@@ -67,9 +66,9 @@ public:
                                      Buffer& instance_buf_out);
 
 private:
-    VkAccelerationStructureKHR handle_         = VK_NULL_HANDLE;
-    Buffer                     buffer_;         // backing memory
-    VkDeviceAddress            device_address_ = 0;
+    AccelStructureHandle handle_         = 0;
+    Buffer               buffer_;         // backing memory
+    uint64_t             device_address_ = 0;
 };
 
 // ── BLAS builder ──────────────────────────────────────────────────────────
