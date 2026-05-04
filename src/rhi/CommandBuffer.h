@@ -1,9 +1,8 @@
 #pragma once
 
+#include "rhi/CommandRecorder.h"
 #include <array>
 #include <cstdint>
-
-#include <volk.h>
 
 #include "rhi/Frame.h"
 
@@ -26,24 +25,16 @@ public:
 
     // Reset the pool for the given frame slot and return a freshly-begun
     // primary command buffer ready for recording.
-    [[nodiscard]] VkCommandBuffer begin_frame(uint32_t frame_index);
-    void end_frame(VkCommandBuffer cmd);
+    [[nodiscard]] CommandRecorder begin_frame(uint32_t frame_index);
+    void end_frame(CommandRecorder cmd);
 
     // Returns the command pool for frame slot 0 (suitable for one-time submissions
     // that don't need to align with a specific in-flight frame slot).
-    [[nodiscard]] VkCommandPool pool() const { return pools_[0]; }
-
-    // sync2 helper: transitions a single colour image's layout, picking
-    // generic-but-correct stage/access masks for the source and dest layouts.
-    static void image_barrier(
-        VkCommandBuffer cmd,
-        VkImage image,
-        VkImageLayout old_layout,
-        VkImageLayout new_layout);
+    [[nodiscard]] CommandPoolHandle pool() const { return pools_[0]; }
 
 private:
     Device* device_ = nullptr;
-    std::array<VkCommandPool, kFramesInFlight> pools_{};
-    std::array<VkCommandBuffer, kFramesInFlight> buffers_{};
+    std::array<CommandPoolHandle, kFramesInFlight> pools_{};
+    std::array<CommandBufferHandle, kFramesInFlight> buffers_{};
 };
 }

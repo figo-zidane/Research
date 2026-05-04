@@ -15,7 +15,7 @@ Surface::~Surface()
 
 void Surface::initialize(const Device& device, NativeWindowHandle window)
 {
-    if (surface_ != 0)
+    if (surface_ != nullptr)
     {
         throw std::runtime_error("Surface is already initialized.");
     }
@@ -31,7 +31,7 @@ void Surface::initialize(const Device& device, NativeWindowHandle window)
 void Surface::shutdown()
 {
     platform::destroy_surface_handle(instance_, surface_);
-    surface_ = 0;
+    surface_ = nullptr;
     instance_ = 0;
 }
 }

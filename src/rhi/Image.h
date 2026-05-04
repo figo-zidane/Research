@@ -40,6 +40,13 @@ public:
 
     void create(Device& device, const ImageDesc& desc);
     void destroy(Device& device);
+    void attach_external(ImageHandle image,
+                         ImageViewHandle view,
+                         Format format,
+                         Extent2D extent,
+                         ImageAspect aspect = ImageAspect::Color,
+                         uint32_t mip_levels = 1,
+                         uint32_t array_layers = 1) noexcept;
 
     // Upload pixel data to the image using VK_KHR_copy_commands2 / hostImageCopy
     // (Vulkan 1.4 core). The image must have been created with
@@ -64,6 +71,8 @@ private:
     VkImage            image_        = VK_NULL_HANDLE;
     VkImageView        view_         = VK_NULL_HANDLE;
     VmaAllocation      allocation_   = nullptr;
+    bool               owns_image_   = false;
+    bool               owns_view_    = false;
     Format             format_       = Format::Undefined;
     Extent3D           extent_       = {};
     ImageAspect        aspect_       = ImageAspect::Color;

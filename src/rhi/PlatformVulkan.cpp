@@ -34,7 +34,7 @@ std::vector<const char*> required_instance_extensions(PresentationSupport presen
     throw std::runtime_error("Unsupported presentation mode.");
 }
 
-uint64_t create_surface_handle(uint64_t instance_handle, NativeWindowHandle window)
+SurfaceHandle create_surface_handle(uint64_t instance_handle, NativeWindowHandle window)
 {
     if (instance_handle == 0)
     {
@@ -52,19 +52,19 @@ uint64_t create_surface_handle(uint64_t instance_handle, NativeWindowHandle wind
         throw std::runtime_error("Failed to create Vulkan window surface.");
     }
 
-    return to_handle(surface);
+    return to_opaque_handle<SurfaceHandle>(surface);
 }
 
-void destroy_surface_handle(uint64_t instance_handle, uint64_t surface_handle) noexcept
+void destroy_surface_handle(uint64_t instance_handle, SurfaceHandle surface_handle) noexcept
 {
-    if (instance_handle == 0 || surface_handle == 0)
+    if (instance_handle == 0 || surface_handle == nullptr)
     {
         return;
     }
 
     vkDestroySurfaceKHR(
         from_handle<VkInstance>(instance_handle),
-        from_handle<VkSurfaceKHR>(surface_handle),
+        from_opaque_handle<VkSurfaceKHR>(surface_handle),
         nullptr);
 }
 }

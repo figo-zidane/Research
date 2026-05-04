@@ -217,7 +217,7 @@ void Application::initialize_renderer()
 
     tonemap_pass_ = renderer_.add_pass<rr::passes::tonemap::TonemapPass>();
     tonemap_pass_->initialize(device_, slang_session_, bindless_registry_,
-                              static_cast<rr::rhi::Format>(swapchain_.image_format()));
+                              swapchain_.image_format());
     tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
     tonemap_pass_->linear_sampler_idx      = scene_.gpu_handles().linear_sampler_idx;
 
@@ -311,14 +311,14 @@ void Application::render_frame()
     }
 
     const uint32_t frame_index = frame_.current();
-    const auto&    sync        = frame_.sync(frame_index);
-
-    vkWaitForFences(device_.device(), 1, &sync.in_flight, VK_TRUE, UINT64_MAX);
+    frame_.wait_for_in_flight(frame_index);
 
     uint32_t image_index = 0;
+    const VkSwapchainKHR swapchain_handle = rr::rhi::from_opaque_handle<VkSwapchainKHR>(swapchain_.handle());
+    const VkSemaphore image_available = rr::rhi::from_opaque_handle<VkSemaphore>(frame_.image_available_semaphore(frame_index));
     VkResult acquire = vkAcquireNextImageKHR(
-        device_.device(), swapchain_.handle(), UINT64_MAX,
-        sync.image_available, VK_NULL_HANDLE, &image_index);
+        device_.device(), swapchain_handle, UINT64_MAX,
+        image_available, VK_NULL_HANDLE, &image_index);
     if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
     {
         recreate_swapchain();
@@ -329,7 +329,7 @@ void Application::render_frame()
         throw std::runtime_error("vkAcquireNextImageKHR failed.");
     }
 
-    vkResetFences(device_.device(), 1, &sync.in_flight);
+    frame_.reset_in_flight_fence(frame_index);
 
     // ── ImGui per-frame state machine (before command recording) ──────────
     imgui_pass_->new_frame();
@@ -426,7 +426,8 @@ void Application::render_frame()
     }
 
     // ── Command buffer recording ──────────────────────────────────────────
-    VkCommandBuffer cmd = command_buffer_.begin_frame(frame_index);
+    rr::rhi::CommandRecorder recorder = command_buffer_.begin_frame(frame_index);
+    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
 
     // Ensure descriptor heap writes (done during upload) are visible to GPU
     bindless_registry_.heap_write_barrier(cmd);
@@ -434,18 +435,32 @@ void Application::render_frame()
     bindless_registry_.bind_heaps(cmd);
 
     // Transition the swapchain image to COLOR_ATTACHMENT_OPTIMAL
-    rr::rhi::CommandBuffer::image_barrier(
-        cmd, swapchain_.image(image_index),
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    const rr::rhi::ImageBarrier swapchain_to_color{
+        .image = &swapchain_.image(image_index),
+        .src_stage = rr::rhi::PipelineStage::TopOfPipe,
+        .src_access = rr::rhi::AccessFlags::None,
+        .dst_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+        .dst_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+        .old_layout = rr::rhi::ImageLayout::Undefined,
+        .new_layout = rr::rhi::ImageLayout::ColorAttachment,
+        .subresource = {
+            .aspect = rr::rhi::ImageAspect::Color,
+            .base_mip = 0,
+            .mip_count = 1,
+            .base_layer = 0,
+            .layer_count = 1,
+        },
+    };
+    recorder.pipeline_barrier({&swapchain_to_color, 1});
 
     // Build the frame context
     rr::render::FrameContext frame_context{};
-    frame_context.command_recorder     = rr::rhi::CommandRecorder{static_cast<void*>(cmd)};
+    frame_context.command_recorder     = recorder;
     frame_context.device               = &device_;
     frame_context.bindless_registry    = &bindless_registry_;
     frame_context.scene                = &scene_;
     frame_context.renderer             = &renderer_;
-    frame_context.swapchain_image_view = rr::rhi::to_handle(swapchain_.image_view(image_index));
+    frame_context.swapchain_image_view = rr::rhi::to_handle(swapchain_.image(image_index).view());
     frame_context.swapchain_extent     = {swapchain_.extent().width, swapchain_.extent().height};
     frame_context.image_index          = image_index;
     frame_context.frame_index          = frame_index;
@@ -497,31 +512,46 @@ void Application::render_frame()
         compute_mse();
 
     // Transition the swapchain image to PRESENT_SRC_KHR for presentation.
-    rr::rhi::CommandBuffer::image_barrier(
-        cmd, swapchain_.image(image_index),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    const rr::rhi::ImageBarrier swapchain_to_present{
+        .image = &swapchain_.image(image_index),
+        .src_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
+        .src_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
+        .dst_stage = rr::rhi::PipelineStage::None,
+        .dst_access = rr::rhi::AccessFlags::None,
+        .old_layout = rr::rhi::ImageLayout::ColorAttachment,
+        .new_layout = rr::rhi::ImageLayout::Present,
+        .subresource = {
+            .aspect = rr::rhi::ImageAspect::Color,
+            .base_mip = 0,
+            .mip_count = 1,
+            .base_layer = 0,
+            .layer_count = 1,
+        },
+    };
+    recorder.pipeline_barrier({&swapchain_to_present, 1});
 
-    command_buffer_.end_frame(cmd);
+    command_buffer_.end_frame(recorder);
 
     // ── Queue submit ──────────────────────────────────────────────────────
-    const VkSemaphore render_finished = swapchain_.render_finished(image_index);
+    const VkSemaphore render_finished = rr::rhi::from_opaque_handle<VkSemaphore>(swapchain_.render_finished(image_index));
     constexpr VkPipelineStageFlags kWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     VkSubmitInfo submit{};
     submit.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.waitSemaphoreCount   = 1;
-    submit.pWaitSemaphores      = &sync.image_available;
+    submit.pWaitSemaphores      = &image_available;
     submit.pWaitDstStageMask    = &kWaitStage;
     submit.commandBufferCount   = 1;
     submit.pCommandBuffers      = &cmd;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores    = &render_finished;
-    if (vkQueueSubmit(device_.graphics_queue(), 1, &submit, sync.in_flight) != VK_SUCCESS)
+    const VkFence in_flight_fence = rr::rhi::from_opaque_handle<VkFence>(frame_.in_flight_fence(frame_index));
+    if (vkQueueSubmit(device_.graphics_queue(), 1, &submit, in_flight_fence) != VK_SUCCESS)
     {
         throw std::runtime_error("vkQueueSubmit failed.");
     }
 
     // ── Presentation ──────────────────────────────────────────────────────
-    VkSwapchainKHR swap = swapchain_.handle();
+    VkSwapchainKHR swap = swapchain_handle;
     VkPresentInfoKHR present{};
     present.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     present.waitSemaphoreCount = 1;
@@ -575,7 +605,7 @@ void Application::recreate_swapchain()
     camera_moved_   = true;
     accumulated_spp_ = 0;
 
-    const VkExtent2D swapchain_extent = swapchain_.extent();
+    const rr::rhi::Extent2D swapchain_extent = swapchain_.extent();
     renderer_.on_resize({swapchain_extent.width, swapchain_extent.height});
 
     // Pass resize recreates images and re-registers them in the bindless heap.
@@ -763,7 +793,7 @@ void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> 
     // Allocate a temporary command buffer from the pool
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool        = command_buffer_.pool();
+    alloc_info.commandPool        = rr::rhi::from_opaque_handle<VkCommandPool>(command_buffer_.pool());
     alloc_info.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     alloc_info.commandBufferCount = 1;
 
@@ -787,7 +817,8 @@ void Application::one_time_submit(std::function<void(rr::rhi::CommandRecorder)> 
     vkQueueSubmit(device_.graphics_queue(), 1, &submit_info, VK_NULL_HANDLE);
     vkQueueWaitIdle(device_.graphics_queue());
 
-    vkFreeCommandBuffers(device_.device(), command_buffer_.pool(), 1, &tmp_cmd);
+    const VkCommandPool one_time_pool = rr::rhi::from_opaque_handle<VkCommandPool>(command_buffer_.pool());
+    vkFreeCommandBuffers(device_.device(), one_time_pool, 1, &tmp_cmd);
 }
 
 void Application::capture_screenshot()
@@ -797,7 +828,7 @@ void Application::capture_screenshot()
     // Wait for all GPU work to complete before reading back.
     vkDeviceWaitIdle(device_.device());
 
-    const VkExtent2D ext = swapchain_.extent();
+    const rr::rhi::Extent2D ext = swapchain_.extent();
     const uint32_t   pixel_count = ext.width * ext.height;
     const VkDeviceSize buf_size  = static_cast<VkDeviceSize>(pixel_count) * 4 * sizeof(float);
 
@@ -905,7 +936,7 @@ void Application::compute_mse()
         img_ri = restir_di_pass_->output_image_handle();
     if (img_ri == 0) return;
 
-    const VkExtent2D ext = swapchain_.extent();
+    const rr::rhi::Extent2D ext = swapchain_.extent();
     const uint32_t   crop = kMseCropSize;
     if (ext.width < crop || ext.height < crop) return;
 

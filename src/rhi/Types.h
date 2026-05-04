@@ -1,5 +1,7 @@
 #pragma once
 
+#include "rhi/Handles.h"
+
 #include <cstdint>
 #include <type_traits>
 

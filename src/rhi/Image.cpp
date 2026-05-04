@@ -19,6 +19,8 @@ Image::Image(Image&& other) noexcept
     : image_(other.image_)
     , view_(other.view_)
     , allocation_(other.allocation_)
+    , owns_image_(other.owns_image_)
+    , owns_view_(other.owns_view_)
     , format_(other.format_)
     , extent_(other.extent_)
     , aspect_(other.aspect_)
@@ -28,6 +30,8 @@ Image::Image(Image&& other) noexcept
     other.image_       = VK_NULL_HANDLE;
     other.view_        = VK_NULL_HANDLE;
     other.allocation_  = nullptr;
+    other.owns_image_  = false;
+    other.owns_view_   = false;
     other.format_      = Format::Undefined;
     other.extent_      = {};
     other.mip_levels_  = 1;
@@ -41,6 +45,8 @@ Image& Image::operator=(Image&& other) noexcept
         image_        = other.image_;
         view_         = other.view_;
         allocation_   = other.allocation_;
+        owns_image_   = other.owns_image_;
+        owns_view_    = other.owns_view_;
         format_       = other.format_;
         extent_       = other.extent_;
         aspect_       = other.aspect_;
@@ -49,6 +55,8 @@ Image& Image::operator=(Image&& other) noexcept
         other.image_       = VK_NULL_HANDLE;
         other.view_        = VK_NULL_HANDLE;
         other.allocation_  = nullptr;
+        other.owns_image_  = false;
+        other.owns_view_   = false;
         other.format_      = Format::Undefined;
         other.extent_      = {};
         other.mip_levels_  = 1;
@@ -93,6 +101,8 @@ void Image::create(Device& device, const ImageDesc& desc)
     aspect_       = desc.aspect;
     mip_levels_   = desc.mip_levels;
     array_layers_ = desc.array_layers;
+    owns_image_   = true;
+    owns_view_    = true;
 
     // Create the default image view covering all mips and layers.
     VkImageViewCreateInfo view_info{};
@@ -113,6 +123,7 @@ void Image::create(Device& device, const ImageDesc& desc)
         vmaDestroyImage(device.allocator(), image_, allocation_);
         image_      = VK_NULL_HANDLE;
         allocation_ = nullptr;
+        owns_image_ = false;
         throw std::runtime_error("vkCreateImageView failed.");
     }
 
@@ -133,20 +144,45 @@ void Image::create(Device& device, const ImageDesc& desc)
     }
 }
 
+void Image::attach_external(ImageHandle image,
+                            ImageViewHandle view,
+                            Format format,
+                            Extent2D extent,
+                            ImageAspect aspect,
+                            uint32_t mip_levels,
+                            uint32_t array_layers) noexcept
+{
+    image_        = from_handle<VkImage>(image);
+    view_         = from_handle<VkImageView>(view);
+    allocation_   = nullptr;
+    owns_image_   = false;
+    owns_view_    = true;
+    format_       = format;
+    extent_       = {extent.width, extent.height, 1};
+    aspect_       = aspect;
+    mip_levels_   = mip_levels;
+    array_layers_ = array_layers;
+}
+
 void Image::destroy(Device& device)
 {
     if (image_ == VK_NULL_HANDLE)
     {
         return;
     }
-    if (view_ != VK_NULL_HANDLE)
+    if (view_ != VK_NULL_HANDLE && owns_view_)
     {
         vkDestroyImageView(device.device(), view_, nullptr);
-        view_ = VK_NULL_HANDLE;
     }
-    vmaDestroyImage(device.allocator(), image_, allocation_);
+    if (image_ != VK_NULL_HANDLE && owns_image_)
+    {
+        vmaDestroyImage(device.allocator(), image_, allocation_);
+    }
+    view_       = VK_NULL_HANDLE;
     image_      = VK_NULL_HANDLE;
     allocation_ = nullptr;
+    owns_image_ = false;
+    owns_view_  = false;
 }
 
 void Image::upload_host(Device& device,

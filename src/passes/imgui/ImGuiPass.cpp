@@ -66,7 +66,7 @@ void ImGuiPass::initialize(rr::rhi::Device&          device,
                             GLFWwindow*               window,
                             const rr::rhi::Swapchain& swapchain)
 {
-    color_format_ = static_cast<rr::rhi::Format>(swapchain.image_format());
+    color_format_ = swapchain.image_format();
     extent_       = {swapchain.extent().width, swapchain.extent().height};
 
     // ── ImGui context ────────────────────────────────────────────────────

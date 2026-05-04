@@ -219,7 +219,7 @@ void Device::create_device_with_surface(const Surface& surface)
         throw std::runtime_error("create_device_with_surface requires a Surface created from this Device instance.");
     }
 
-    create_device_with_surface(from_handle<VkSurfaceKHR>(surface.surface_));
+    create_device_with_surface(from_opaque_handle<VkSurfaceKHR>(surface.surface_));
 }
 
 void Device::create_device_with_surface(VkSurfaceKHR surface)

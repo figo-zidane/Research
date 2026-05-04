@@ -1,9 +1,9 @@
 #pragma once
 
+#include "rhi/Handles.h"
+
 #include <array>
 #include <cstdint>
-
-#include <volk.h>
 
 namespace rr::rhi
 {
@@ -16,15 +16,6 @@ inline constexpr uint32_t kFramesInFlight = 2;
 class Frame
 {
 public:
-    struct Sync
-    {
-        // Signaled by vkAcquireNextImageKHR; one per frame-in-flight slot. The
-        // matching render_finished semaphore is owned by the swapchain (one
-        // per image) because image indices and frame indices don't align.
-        VkSemaphore image_available = VK_NULL_HANDLE;
-        VkFence     in_flight       = VK_NULL_HANDLE;
-    };
-
     Frame() = default;
     Frame(const Frame&) = delete;
     Frame& operator=(const Frame&) = delete;
@@ -34,14 +25,18 @@ public:
 
     void initialize(Device& device);
     void shutdown();
+    void wait_for_in_flight(uint32_t frame_index) const;
+    void reset_in_flight_fence(uint32_t frame_index) const;
 
-    [[nodiscard]] const Sync& sync(uint32_t frame_index) const { return syncs_[frame_index]; }
+    [[nodiscard]] SemaphoreHandle image_available_semaphore(uint32_t frame_index) const { return image_available_[frame_index]; }
+    [[nodiscard]] FenceHandle in_flight_fence(uint32_t frame_index) const { return in_flight_[frame_index]; }
     [[nodiscard]] uint32_t advance() noexcept;
     [[nodiscard]] uint32_t current() const noexcept { return current_frame_; }
 
 private:
     Device* device_ = nullptr;
-    std::array<Sync, kFramesInFlight> syncs_{};
+    std::array<SemaphoreHandle, kFramesInFlight> image_available_{};
+    std::array<FenceHandle, kFramesInFlight> in_flight_{};
     uint32_t current_frame_ = 0;
 };
 }

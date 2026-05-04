@@ -6,6 +6,19 @@
 
 namespace rr::rhi
 {
+namespace
+{
+[[nodiscard]] VkCommandPool as_vk_command_pool(CommandPoolHandle handle)
+{
+    return from_opaque_handle<VkCommandPool>(handle);
+}
+
+[[nodiscard]] VkCommandBuffer as_vk_command_buffer(CommandBufferHandle handle)
+{
+    return from_opaque_handle<VkCommandBuffer>(handle);
+}
+}
+
 CommandBuffer::~CommandBuffer()
 {
     shutdown();
@@ -24,20 +37,24 @@ void CommandBuffer::initialize(Device& device)
 
     for (uint32_t i = 0; i < kFramesInFlight; ++i)
     {
-        if (vkCreateCommandPool(device.device(), &pool_info, nullptr, &pools_[i]) != VK_SUCCESS)
+        VkCommandPool pool = VK_NULL_HANDLE;
+        if (vkCreateCommandPool(device.device(), &pool_info, nullptr, &pool) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to create per-frame command pool.");
         }
+        pools_[i] = to_opaque_handle<CommandPoolHandle>(pool);
 
         VkCommandBufferAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.commandPool = pools_[i];
+        alloc_info.commandPool = pool;
         alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         alloc_info.commandBufferCount = 1;
-        if (vkAllocateCommandBuffers(device.device(), &alloc_info, &buffers_[i]) != VK_SUCCESS)
+        VkCommandBuffer buffer = VK_NULL_HANDLE;
+        if (vkAllocateCommandBuffers(device.device(), &alloc_info, &buffer) != VK_SUCCESS)
         {
             throw std::runtime_error("Failed to allocate per-frame command buffer.");
         }
+        buffers_[i] = to_opaque_handle<CommandBufferHandle>(buffer);
     }
 }
 
@@ -49,21 +66,21 @@ void CommandBuffer::shutdown()
     }
     for (uint32_t i = 0; i < kFramesInFlight; ++i)
     {
-        if (pools_[i] != VK_NULL_HANDLE)
+        if (pools_[i] != nullptr)
         {
-            vkDestroyCommandPool(device_->device(), pools_[i], nullptr);
-            pools_[i] = VK_NULL_HANDLE;
+            vkDestroyCommandPool(device_->device(), as_vk_command_pool(pools_[i]), nullptr);
+            pools_[i] = nullptr;
         }
-        buffers_[i] = VK_NULL_HANDLE;
+        buffers_[i] = nullptr;
     }
     device_ = nullptr;
 }
 
-VkCommandBuffer CommandBuffer::begin_frame(uint32_t frame_index)
+CommandRecorder CommandBuffer::begin_frame(uint32_t frame_index)
 {
-    vkResetCommandPool(device_->device(), pools_[frame_index], 0);
+    vkResetCommandPool(device_->device(), as_vk_command_pool(pools_[frame_index]), 0);
 
-    VkCommandBuffer cmd = buffers_[frame_index];
+    VkCommandBuffer cmd = as_vk_command_buffer(buffers_[frame_index]);
     VkCommandBufferBeginInfo begin{};
     begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -71,62 +88,14 @@ VkCommandBuffer CommandBuffer::begin_frame(uint32_t frame_index)
     {
         throw std::runtime_error("vkBeginCommandBuffer failed.");
     }
-    return cmd;
+    return CommandRecorder{static_cast<void*>(cmd)};
 }
 
-void CommandBuffer::end_frame(VkCommandBuffer cmd)
+void CommandBuffer::end_frame(CommandRecorder cmd)
 {
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS)
+    if (vkEndCommandBuffer(static_cast<VkCommandBuffer>(cmd.handle())) != VK_SUCCESS)
     {
         throw std::runtime_error("vkEndCommandBuffer failed.");
     }
-}
-
-void CommandBuffer::image_barrier(
-    VkCommandBuffer cmd,
-    VkImage image,
-    VkImageLayout old_layout,
-    VkImageLayout new_layout)
-{
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    // Layout-driven scope selection.
-    // NOTE: Currently only needs UNDEFINED -> COLOR_ATTACHMENT
-    // and COLOR_ATTACHMENT -> PRESENT_SRC; richer transitions are added later.
-    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED && new_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
-    {
-        barrier.srcStageMask  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        barrier.srcAccessMask = 0;
-        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && new_layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
-    {
-        barrier.srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
-        barrier.dstAccessMask = 0;
-    }
-    else
-    {
-        // Conservative fallback for layouts we don't specialise yet.
-        barrier.srcStageMask  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
-        barrier.dstStageMask  = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-    }
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
 }
 }
