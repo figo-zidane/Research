@@ -23,7 +23,7 @@ Buffer::Buffer(Buffer&& other) noexcept
     , device_address_(other.device_address_)
     , mapped_(other.mapped_)
 {
-    other.buffer_          = VK_NULL_HANDLE;
+    other.buffer_          = 0;
     other.allocation_      = nullptr;
     other.size_            = 0;
     other.device_address_  = 0;
@@ -40,7 +40,7 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept
         size_            = other.size_;
         device_address_  = other.device_address_;
         mapped_          = other.mapped_;
-        other.buffer_          = VK_NULL_HANDLE;
+        other.buffer_          = 0;
         other.allocation_      = nullptr;
         other.size_            = 0;
         other.device_address_  = 0;
@@ -51,7 +51,7 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept
 
 void Buffer::create(Device& device, const BufferDesc& desc)
 {
-    if (buffer_ != VK_NULL_HANDLE)
+    if (buffer_ != 0)
     {
         throw std::runtime_error("Buffer::create called on an already-created buffer.");
     }
@@ -67,12 +67,16 @@ void Buffer::create(Device& device, const BufferDesc& desc)
     alloc_info.flags = to_vma_allocation_flags(desc.alloc_flags);
 
     VmaAllocationInfo alloc_result{};
+    VkBuffer raw_buffer = VK_NULL_HANDLE;
+    VmaAllocation raw_allocation = nullptr;
     if (vmaCreateBuffer(vulkan::get_allocator(device), &buf_info, &alloc_info,
-                        &buffer_, &allocation_, &alloc_result) != VK_SUCCESS)
+                        &raw_buffer, &raw_allocation, &alloc_result) != VK_SUCCESS)
     {
         throw std::runtime_error("vmaCreateBuffer failed.");
     }
 
+    buffer_ = to_handle(raw_buffer);
+    allocation_ = raw_allocation;
     size_   = desc.size;
     mapped_ = alloc_result.pMappedData; // non-null if MAPPED_BIT was set
 
@@ -81,7 +85,7 @@ void Buffer::create(Device& device, const BufferDesc& desc)
     {
         VkBufferDeviceAddressInfo addr_info{};
         addr_info.sType  = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-        addr_info.buffer = buffer_;
+        addr_info.buffer = raw_buffer;
         device_address_ = vkGetBufferDeviceAddress(vulkan::get_device(device), &addr_info);
     }
 
@@ -98,12 +102,12 @@ void Buffer::create(Device& device, const BufferDesc& desc)
 
 void Buffer::destroy(Device& device)
 {
-    if (buffer_ == VK_NULL_HANDLE)
+    if (buffer_ == 0)
     {
         return;
     }
-    vmaDestroyBuffer(vulkan::get_allocator(device), buffer_, allocation_);
-    buffer_         = VK_NULL_HANDLE;
+    vmaDestroyBuffer(vulkan::get_allocator(device), from_handle<VkBuffer>(buffer_), allocation_);
+    buffer_         = 0;
     allocation_     = nullptr;
     size_           = 0;
     device_address_ = 0;

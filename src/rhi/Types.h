@@ -7,6 +7,13 @@
 
 namespace rr::rhi
 {
+struct Offset3D
+{
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t z = 0;
+};
+
 struct Extent2D
 {
     uint32_t width  = 0;

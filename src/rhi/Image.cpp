@@ -28,8 +28,8 @@ Image::Image(Image&& other) noexcept
     , mip_levels_(other.mip_levels_)
     , array_layers_(other.array_layers_)
 {
-    other.image_       = VK_NULL_HANDLE;
-    other.view_        = VK_NULL_HANDLE;
+    other.image_       = 0;
+    other.view_        = 0;
     other.allocation_  = nullptr;
     other.owns_image_  = false;
     other.owns_view_   = false;
@@ -53,8 +53,8 @@ Image& Image::operator=(Image&& other) noexcept
         aspect_       = other.aspect_;
         mip_levels_   = other.mip_levels_;
         array_layers_ = other.array_layers_;
-        other.image_       = VK_NULL_HANDLE;
-        other.view_        = VK_NULL_HANDLE;
+        other.image_       = 0;
+        other.view_        = 0;
         other.allocation_  = nullptr;
         other.owns_image_  = false;
         other.owns_view_   = false;
@@ -68,7 +68,7 @@ Image& Image::operator=(Image&& other) noexcept
 
 void Image::create(Device& device, const ImageDesc& desc)
 {
-    if (image_ != VK_NULL_HANDLE)
+    if (image_ != 0)
     {
         throw std::runtime_error("Image::create called on an already-created image.");
     }
@@ -90,8 +90,10 @@ void Image::create(Device& device, const ImageDesc& desc)
     alloc_info.usage = static_cast<VmaMemoryUsage>(desc.memory_usage);
     alloc_info.flags = static_cast<VmaAllocationCreateFlags>(desc.alloc_flags);
 
+    VkImage raw_image = VK_NULL_HANDLE;
+    VmaAllocation raw_allocation = nullptr;
     VkResult res = vmaCreateImage(vulkan::get_allocator(device), &img_info, &alloc_info,
-                       &image_, &allocation_, nullptr);
+                       &raw_image, &raw_allocation, nullptr);
     if (res != VK_SUCCESS)
     {
         throw std::runtime_error(std::string("vmaCreateImage failed: VkResult=") + std::to_string(static_cast<int>(res)));
@@ -108,7 +110,7 @@ void Image::create(Device& device, const ImageDesc& desc)
     // Create the default image view covering all mips and layers.
     VkImageViewCreateInfo view_info{};
     view_info.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image    = image_;
+    view_info.image    = raw_image;
     view_info.viewType = (desc.type == ImageType::Image3D)
                              ? VK_IMAGE_VIEW_TYPE_3D
                              : (desc.array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D);
@@ -119,14 +121,16 @@ void Image::create(Device& device, const ImageDesc& desc)
     view_info.subresourceRange.baseArrayLayer = 0;
     view_info.subresourceRange.layerCount     = desc.array_layers;
 
-    if (vkCreateImageView(vulkan::get_device(device), &view_info, nullptr, &view_) != VK_SUCCESS)
+    VkImageView raw_view = VK_NULL_HANDLE;
+    if (vkCreateImageView(vulkan::get_device(device), &view_info, nullptr, &raw_view) != VK_SUCCESS)
     {
-        vmaDestroyImage(vulkan::get_allocator(device), image_, allocation_);
-        image_      = VK_NULL_HANDLE;
-        allocation_ = nullptr;
-        owns_image_ = false;
+        vmaDestroyImage(vulkan::get_allocator(device), raw_image, raw_allocation);
         throw std::runtime_error("vkCreateImageView failed.");
     }
+
+    image_      = to_handle(raw_image);
+    view_       = to_handle(raw_view);
+    allocation_ = raw_allocation;
 
     if (desc.debug_name)
     {
@@ -139,9 +143,9 @@ void Image::create(Device& device, const ImageDesc& desc)
             vkSetDebugUtilsObjectNameEXT(vulkan::get_device(device), &ni);
         };
         set_name(VK_OBJECT_TYPE_IMAGE,
-                 reinterpret_cast<uint64_t>(image_), desc.debug_name);
+                 image_, desc.debug_name);
         set_name(VK_OBJECT_TYPE_IMAGE_VIEW,
-                 reinterpret_cast<uint64_t>(view_), desc.debug_name);
+                 view_, desc.debug_name);
     }
 }
 
@@ -153,8 +157,8 @@ void Image::attach_external(ImageHandle image,
                             uint32_t mip_levels,
                             uint32_t array_layers) noexcept
 {
-    image_        = from_handle<VkImage>(image);
-    view_         = from_handle<VkImageView>(view);
+    image_        = image;
+    view_         = view;
     allocation_   = nullptr;
     owns_image_   = false;
     owns_view_    = true;
@@ -167,20 +171,20 @@ void Image::attach_external(ImageHandle image,
 
 void Image::destroy(Device& device)
 {
-    if (image_ == VK_NULL_HANDLE)
+    if (image_ == 0)
     {
         return;
     }
-    if (view_ != VK_NULL_HANDLE && owns_view_)
+    if (view_ != 0 && owns_view_)
     {
-        vkDestroyImageView(vulkan::get_device(device), view_, nullptr);
+        vkDestroyImageView(vulkan::get_device(device), from_handle<VkImageView>(view_), nullptr);
     }
-    if (image_ != VK_NULL_HANDLE && owns_image_)
+    if (image_ != 0 && owns_image_)
     {
-        vmaDestroyImage(vulkan::get_allocator(device), image_, allocation_);
+        vmaDestroyImage(vulkan::get_allocator(device), from_handle<VkImage>(image_), allocation_);
     }
-    view_       = VK_NULL_HANDLE;
-    image_      = VK_NULL_HANDLE;
+    view_       = 0;
+    image_      = 0;
     allocation_ = nullptr;
     owns_image_ = false;
     owns_view_  = false;
@@ -188,7 +192,7 @@ void Image::destroy(Device& device)
 
 void Image::upload_host(Device& device,
                         const void*   data,
-                        VkDeviceSize  data_size,
+                        uint64_t      data_size,
                         ImageLayout final_layout)
 {
     // Use hostImageCopy (Vulkan 1.4 / VK_EXT_host_image_copy) to upload
@@ -198,11 +202,13 @@ void Image::upload_host(Device& device,
     // VK_IMAGE_USAGE_TRANSFER_DST_BIT, so VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     // is illegal. VK_IMAGE_LAYOUT_GENERAL is always a valid host-copy destination.
 
+    const VkImage raw_image = from_handle<VkImage>(image_);
+
     // Transition UNDEFINED → GENERAL.
     {
         VkHostImageLayoutTransitionInfo transition{};
         transition.sType            = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
-        transition.image            = image_;
+        transition.image            = raw_image;
         transition.oldLayout        = VK_IMAGE_LAYOUT_UNDEFINED;
         transition.newLayout        = VK_IMAGE_LAYOUT_GENERAL;
         transition.subresourceRange = {to_vk_image_aspect(aspect_), 0, mip_levels_, 0, array_layers_};
@@ -229,7 +235,7 @@ void Image::upload_host(Device& device,
 
         VkCopyMemoryToImageInfo copy_info{};
         copy_info.sType          = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO;
-        copy_info.dstImage       = image_;
+        copy_info.dstImage       = raw_image;
         copy_info.dstImageLayout = VK_IMAGE_LAYOUT_GENERAL;
         copy_info.regionCount    = 1;
         copy_info.pRegions       = &copy;
@@ -244,7 +250,7 @@ void Image::upload_host(Device& device,
     {
         VkHostImageLayoutTransitionInfo transition{};
         transition.sType            = VK_STRUCTURE_TYPE_HOST_IMAGE_LAYOUT_TRANSITION_INFO;
-        transition.image            = image_;
+        transition.image            = raw_image;
         transition.oldLayout        = VK_IMAGE_LAYOUT_GENERAL;
         transition.newLayout        = to_vk_image_layout(final_layout);
         transition.subresourceRange = {to_vk_image_aspect(aspect_), 0, mip_levels_, 0, array_layers_};

@@ -37,6 +37,7 @@ public:
     uint32_t output_texture_idx = UINT32_MAX;
 
     [[nodiscard]] rr::rhi::ImageHandle output_image_handle() const;
+    [[nodiscard]] const rr::rhi::Image& output_image() const noexcept { return output_img_; }
 
     void set_inputs(uint32_t gbuf_pos_idx,
                     uint32_t gbuf_norm_idx,

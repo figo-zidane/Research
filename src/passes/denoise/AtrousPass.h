@@ -49,6 +49,7 @@ public:
     void pre_transition_to_general(rr::rhi::CommandRecorder recorder);
 
     [[nodiscard]] uint32_t output_texture_idx() const;
+    [[nodiscard]] const rr::rhi::Image& output_image() const noexcept;
     [[nodiscard]] rr::rhi::ImageHandle output_image_handle() const;
 
     uint32_t iterations       = 5;

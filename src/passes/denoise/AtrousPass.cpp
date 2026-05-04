@@ -200,10 +200,15 @@ uint32_t AtrousPass::output_texture_idx() const
     return texture_indices_[output_slot];
 }
 
-rr::rhi::ImageHandle AtrousPass::output_image_handle() const
+const rr::rhi::Image& AtrousPass::output_image() const noexcept
 {
     const uint32_t output_slot = (std::max(1u, iterations) - 1u) & 1u;
-    return rr::rhi::to_handle(ping_images_[output_slot].handle());
+    return ping_images_[output_slot];
+}
+
+rr::rhi::ImageHandle AtrousPass::output_image_handle() const
+{
+    return rr::rhi::to_handle(output_image().handle());
 }
 
 rr::render::RenderPass::Reflection AtrousPass::reflect() const

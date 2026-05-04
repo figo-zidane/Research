@@ -9,6 +9,7 @@
 #include "passes/restir_di/ReSTIRDIPass.h"
 #include "passes/restir_gi/ReSTIRGIPass.h"
 #include "passes/tonemap/TonemapPass.h"
+#include "rhi/Readback.h"
 #include "scene/GltfLoader.h"
 
 // stb_image_write: implementation is in GltfLoader.cpp; only include header here.
@@ -179,7 +180,7 @@ void Application::initialize_renderer()
     slang_session_.initialize("assets/shaders/include");
 
     // Build Cornell Box and upload to GPU.
-    // one_time_submit provides a fresh VkCommandBuffer that gets submitted and
+    // one_time_submit provides a fresh command recorder that gets submitted and
     // waited on before returning.
     scene_.build_cornell_box();
     scene_.upload(device_, bindless_registry_,
@@ -236,8 +237,8 @@ void Application::initialize_renderer()
 
     // Pre-allocate persistent MSE staging buffers (64×64 crop, RGBA32F).
     {
-        const VkDeviceSize mse_buf_size =
-            static_cast<VkDeviceSize>(kMseCropSize * kMseCropSize) * 4 * sizeof(float);
+        const uint64_t mse_buf_size =
+            static_cast<uint64_t>(kMseCropSize * kMseCropSize) * 4 * sizeof(float);
         rr::rhi::BufferDesc desc{};
         desc.size         = mse_buf_size;
         desc.usage        = rr::rhi::BufferUsage::TransferDst;
@@ -735,12 +736,9 @@ void Application::capture_screenshot()
 {
     if (!accumulate_pass_) return;
 
-    // Wait for all GPU work to complete before reading back.
-    device_.wait_idle();
-
     const rr::rhi::Extent2D ext = swapchain_.extent();
     const uint32_t   pixel_count = ext.width * ext.height;
-    const VkDeviceSize buf_size  = static_cast<VkDeviceSize>(pixel_count) * 4 * sizeof(float);
+    const uint64_t   buf_size    = static_cast<uint64_t>(pixel_count) * 4 * sizeof(float);
 
     // Create a host-readable staging buffer (GPU writes → CPU reads).
     // VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT = 0x00000800
@@ -752,52 +750,15 @@ void Application::capture_screenshot()
     bd.alloc_flags  = rr::rhi::AllocFlags::HostAccessRandom;
     staging.create(device_, bd);
 
-    VkImage src = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
-
-    // GPU commands: transition accumulated image to TRANSFER_SRC, copy, transition back.
-    device_.one_time_submit([&](rr::rhi::CommandRecorder recorder)
-    {
-        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
-        // GENERAL → TRANSFER_SRC_OPTIMAL
-        VkImageMemoryBarrier2 b{};
-        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        b.srcAccessMask       = VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_SHADER_READ_BIT;
-        b.dstStageMask        = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        b.dstAccessMask       = VK_ACCESS_2_TRANSFER_READ_BIT;
-        b.oldLayout           = VK_IMAGE_LAYOUT_GENERAL;
-        b.newLayout           = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        b.image               = src;
-        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-        VkDependencyInfo dep{};
-        dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(cmd, &dep);
-
-        // Copy image → buffer (RGBA32F tightly packed)
-        VkBufferImageCopy region{};
-        region.bufferOffset      = 0;
-        region.bufferRowLength   = 0;
-        region.bufferImageHeight = 0;
-        region.imageSubresource  = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageOffset       = {0, 0, 0};
-        region.imageExtent       = {ext.width, ext.height, 1};
-        vkCmdCopyImageToBuffer(cmd, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               rr::rhi::from_handle<VkBuffer>(staging.handle()), 1, &region);
-
-        // TRANSFER_SRC_OPTIMAL → GENERAL (restore for next frame)
-        b.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        b.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-        b.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        b.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-        b.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        b.newLayout     = VK_IMAGE_LAYOUT_GENERAL;
-        vkCmdPipelineBarrier2(cmd, &dep);
-    });
+    const rr::rhi::ImageRegion region{
+        .offset = {0, 0, 0},
+        .extent = {ext.width, ext.height, 1},
+        .aspect = rr::rhi::ImageAspect::Color,
+        .mip = 0,
+        .layer = 0,
+    };
+    rr::rhi::readback_image(device_, accumulate_pass_->accumulated_image(),
+                            rr::rhi::ImageLayout::General, staging, region);
 
     // Map buffer and convert RGBA32F → RGBA8 with ACES tone mapping + sRGB gamma.
     const float* hdr = static_cast<const float*>(staging.map(device_));
@@ -837,14 +798,14 @@ void Application::compute_mse()
 {
     if (!accumulate_pass_) return;
 
-    rr::rhi::ImageHandle img_ri = 0;
+    const rr::rhi::Image* realtime_image = nullptr;
     if (use_denoise_ && atrous_pass_ && (use_di_ || use_gi_))
-        img_ri = atrous_pass_->output_image_handle();
+        realtime_image = &atrous_pass_->output_image();
     else if (use_gi_ && restir_gi_pass_)
-        img_ri = restir_gi_pass_->output_image_handle();
+        realtime_image = &restir_gi_pass_->output_image();
     else if (use_di_ && restir_di_pass_)
-        img_ri = restir_di_pass_->output_image_handle();
-    if (img_ri == 0) return;
+        realtime_image = &restir_di_pass_->output_image();
+    if (realtime_image == nullptr) return;
 
     const rr::rhi::Extent2D ext = swapchain_.extent();
     const uint32_t   crop = kMseCropSize;
@@ -856,62 +817,17 @@ void Application::compute_mse()
 
     // Use persistent staging buffers (allocated in initialize_renderer).
     // No alloc/free per call — avoids the per-frame GPU stall.
-    const VkImage img_pt = rr::rhi::from_handle<VkImage>(accumulate_pass_->accumulated_image_handle());
-    const VkImage img_ri_vk = rr::rhi::from_handle<VkImage>(img_ri);
-
-    device_.one_time_submit([&](rr::rhi::CommandRecorder recorder)
-    {
-        VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
-        // Helper lambda — captures nothing from outer compute_mse; all by param.
-        // Barrier: GENERAL -> TRANSFER_SRC
-        auto barrier_to_src = [](VkCommandBuffer c, VkImage img)
-        {
-            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            b.srcStageMask       = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.srcAccessMask      = VK_ACCESS_2_SHADER_WRITE_BIT;
-            b.dstStageMask       = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            b.dstAccessMask      = VK_ACCESS_2_TRANSFER_READ_BIT;
-            b.oldLayout          = VK_IMAGE_LAYOUT_GENERAL;
-            b.newLayout          = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            b.image              = img;
-            b.subresourceRange   = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers    = &b;
-            vkCmdPipelineBarrier2(c, &dep);
-        };
-        auto barrier_to_general = [](VkCommandBuffer c, VkImage img)
-        {
-            VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-            b.srcStageMask       = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            b.srcAccessMask      = VK_ACCESS_2_TRANSFER_READ_BIT;
-            b.dstStageMask       = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            b.dstAccessMask      = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
-            b.oldLayout          = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            b.newLayout          = VK_IMAGE_LAYOUT_GENERAL;
-            b.image              = img;
-            b.subresourceRange   = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-            VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-            dep.imageMemoryBarrierCount = 1;
-            dep.pImageMemoryBarriers    = &b;
-            vkCmdPipelineBarrier2(c, &dep);
-        };
-
-        VkBufferImageCopy region{};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageOffset      = {off_x, off_y, 0};
-        region.imageExtent      = {crop, crop, 1};
-
-        barrier_to_src(cmd, img_pt);
-        vkCmdCopyImageToBuffer(cmd, img_pt, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               rr::rhi::from_handle<VkBuffer>(mse_staging_pt_.handle()), 1, &region);
-        barrier_to_general(cmd, img_pt);
-
-        barrier_to_src(cmd, img_ri_vk);
-        vkCmdCopyImageToBuffer(cmd, img_ri_vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               rr::rhi::from_handle<VkBuffer>(mse_staging_ri_.handle()), 1, &region);
-        barrier_to_general(cmd, img_ri_vk);
-    });
+    const rr::rhi::ImageRegion region{
+        .offset = {off_x, off_y, 0},
+        .extent = {crop, crop, 1},
+        .aspect = rr::rhi::ImageAspect::Color,
+        .mip = 0,
+        .layer = 0,
+    };
+    rr::rhi::readback_image(device_, accumulate_pass_->accumulated_image(),
+                            rr::rhi::ImageLayout::General, mse_staging_pt_, region);
+    rr::rhi::readback_image(device_, *realtime_image,
+                            rr::rhi::ImageLayout::General, mse_staging_ri_, region);
 
     const float* pt = static_cast<const float*>(mse_staging_pt_.map(device_));
     const float* ri = static_cast<const float*>(mse_staging_ri_.map(device_));

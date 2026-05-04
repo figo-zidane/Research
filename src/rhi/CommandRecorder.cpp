@@ -101,7 +101,7 @@ void CommandRecorder::pipeline_barrier(std::span<const ImageBarrier> barriers) c
         vk_barrier.oldLayout = to_vk_image_layout(barrier.old_layout);
         vk_barrier.newLayout = to_vk_image_layout(barrier.new_layout);
         vk_barrier.image = barrier.image != nullptr
-            ? barrier.image->handle()
+            ? from_handle<VkImage>(barrier.image->handle())
             : from_handle<VkImage>(barrier.image_handle);
         vk_barrier.subresourceRange = to_vk_image_subresource_range(barrier.subresource);
         vk_barriers.push_back(vk_barrier);
@@ -127,7 +127,7 @@ void CommandRecorder::begin_rendering(const RenderingInfo& rendering_info) const
         VkRenderingAttachmentInfo vk_attachment{};
         vk_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         vk_attachment.imageView = attachment.image != nullptr
-            ? attachment.image->view()
+            ? from_handle<VkImageView>(attachment.image->view())
             : from_handle<VkImageView>(attachment.image_view);
         vk_attachment.imageLayout = to_vk_image_layout(attachment.layout);
         vk_attachment.loadOp = to_vk_load_op(attachment.load_op);
@@ -147,7 +147,7 @@ void CommandRecorder::begin_rendering(const RenderingInfo& rendering_info) const
         }
         depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         depth_attachment.imageView = attachment.image != nullptr
-            ? attachment.image->view()
+            ? from_handle<VkImageView>(attachment.image->view())
             : from_handle<VkImageView>(attachment.image_view);
         depth_attachment.imageLayout = to_vk_image_layout(attachment.layout);
         depth_attachment.loadOp = to_vk_load_op(attachment.load_op);
@@ -184,7 +184,7 @@ void CommandRecorder::clear_color_image(const Image& image,
     }
 
     VkClearColorValue value = to_vk_clear_color(clear_color);
-    vkCmdClearColorImage(as_vk_cmd(*this), image.handle(), to_vk_image_layout(layout), &value,
+    vkCmdClearColorImage(as_vk_cmd(*this), from_handle<VkImage>(image.handle()), to_vk_image_layout(layout), &value,
                          static_cast<uint32_t>(vk_ranges.size()), vk_ranges.data());
 }
 } // namespace rr::rhi

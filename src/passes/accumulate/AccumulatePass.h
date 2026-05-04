@@ -48,6 +48,7 @@ public:
 
     // Returns the output image handle for use in FrameContext barriers.
     [[nodiscard]] rr::rhi::ImageHandle accumulated_image_handle() const;
+    [[nodiscard]] const rr::rhi::Image& accumulated_image() const noexcept { return accumulated_img_; }
 
 private:
     void create_images(rr::rhi::Device& device, rr::rhi::BindlessRegistry& registry,

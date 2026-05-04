@@ -57,6 +57,7 @@ public:
     // Returns the output image handle (used for FrameContext
     // accumulated_image barrier in TonemapPass when in ReSTIR DI mode).
     [[nodiscard]] rr::rhi::ImageHandle output_image_handle() const;
+    [[nodiscard]] const rr::rhi::Image& output_image() const noexcept { return output_img_; }
 
     // Set G-buffer image handles and bindless indices produced by GBufferPass.
     // Must be called before the first execute().

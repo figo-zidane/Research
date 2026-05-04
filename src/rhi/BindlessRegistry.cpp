@@ -169,7 +169,7 @@ uint32_t BindlessRegistry::register_texture(Device&            device,
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image    = image.handle();
+    view_ci.image    = from_handle<VkImage>(image.handle());
     view_ci.viewType = to_vk_image_view_type(view_type);
     view_ci.format   = to_vk_format(format);
     view_ci.subresourceRange = {to_vk_image_aspect(aspect), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
@@ -201,7 +201,7 @@ uint32_t BindlessRegistry::register_storage_image(Device&         device,
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType    = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image    = image.handle();
+    view_ci.image    = from_handle<VkImage>(image.handle());
     view_ci.viewType = to_vk_image_view_type(view_type);
     view_ci.format   = to_vk_format(format);
     view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};

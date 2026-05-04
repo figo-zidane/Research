@@ -21,6 +21,7 @@ add_library(rhi STATIC
   rhi/CommandRecorder.cpp
   rhi/Buffer.cpp
   rhi/Image.cpp
+  rhi/Readback.cpp
   rhi/Sampler.cpp
   rhi/BindlessRegistry.cpp
   rhi/Pipeline.cpp

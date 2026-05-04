@@ -3,11 +3,8 @@
 #include "rhi/Types.h"
 
 #include <cstdint>
-#include <volk.h>
 
-// Forward-declare VMA handle types so Buffer.h doesn't need to pull in the
-// entire vk_mem_alloc.h header.  The actual definitions live in vma_impl.cpp.
-VK_DEFINE_HANDLE(VmaAllocation)
+struct VmaAllocation_T;
 
 namespace rr::rhi
 {
@@ -22,7 +19,7 @@ struct BufferDesc
     const char*   debug_name   = nullptr;
 };
 
-// Thin RAII wrapper around a VkBuffer + VmaAllocation.
+// Thin RAII wrapper around a buffer resource plus its allocation.
 // Ownership follows the create/destroy pattern used throughout rhi/.
 class Buffer
 {
@@ -43,17 +40,17 @@ public:
     void* map(Device& device);
     void  unmap(Device& device);
 
-    [[nodiscard]] BufferHandle handle() const noexcept { return to_handle(buffer_); }
+    [[nodiscard]] BufferHandle handle() const noexcept { return buffer_; }
     [[nodiscard]] uint64_t     size() const noexcept { return size_; }
     [[nodiscard]] uint64_t     device_address() const noexcept { return device_address_; }
     [[nodiscard]] void*        mapped() const noexcept { return mapped_; }
-    [[nodiscard]] bool         is_valid() const noexcept { return buffer_ != VK_NULL_HANDLE; }
+    [[nodiscard]] bool         is_valid() const noexcept { return buffer_ != 0; }
 
 private:
-    VkBuffer        buffer_         = VK_NULL_HANDLE;
-    VmaAllocation   allocation_     = nullptr;
+    BufferHandle    buffer_         = 0;
+    VmaAllocation_T* allocation_    = nullptr;
     uint64_t        size_           = 0;
-    VkDeviceAddress device_address_ = 0;
+    uint64_t        device_address_ = 0;
     void*           mapped_         = nullptr;
 };
 
