@@ -24,6 +24,16 @@
 #include <utility>
 #include <vector>
 
+namespace
+{
+void bind_frame_heaps(rr::rhi::BindlessRegistry& bindless_registry, rr::rhi::CommandRecorder recorder)
+{
+    auto* cmd = static_cast<VkCommandBuffer>(recorder.handle());
+    bindless_registry.heap_write_barrier(cmd);
+    bindless_registry.bind_heaps(cmd);
+}
+}
+
 namespace rr::app
 {
 Application::Application() = default;
@@ -313,22 +323,11 @@ void Application::render_frame()
     const uint32_t frame_index = frame_.current();
     frame_.wait_for_in_flight(frame_index);
 
-    uint32_t image_index = 0;
-    const VkDevice vk_device = rr::rhi::from_opaque_handle<VkDevice>(device_.device());
-    const VkQueue graphics_queue = rr::rhi::from_opaque_handle<VkQueue>(device_.graphics_queue());
-    const VkSwapchainKHR swapchain_handle = rr::rhi::from_opaque_handle<VkSwapchainKHR>(swapchain_.handle());
-    const VkSemaphore image_available = rr::rhi::from_opaque_handle<VkSemaphore>(frame_.image_available_semaphore(frame_index));
-    VkResult acquire = vkAcquireNextImageKHR(
-        vk_device, swapchain_handle, UINT64_MAX,
-        image_available, VK_NULL_HANDLE, &image_index);
-    if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
+    const rr::rhi::AcquireResult acquire = swapchain_.acquire_next_image(frame_.image_available_semaphore(frame_index));
+    if (acquire.out_of_date)
     {
         recreate_swapchain();
         return;
-    }
-    if (acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR)
-    {
-        throw std::runtime_error("vkAcquireNextImageKHR failed.");
     }
 
     frame_.reset_in_flight_fence(frame_index);
@@ -429,16 +428,13 @@ void Application::render_frame()
 
     // ── Command buffer recording ──────────────────────────────────────────
     rr::rhi::CommandRecorder recorder = command_buffer_.begin_frame(frame_index);
-    VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
 
     // Ensure descriptor heap writes (done during upload) are visible to GPU
-    bindless_registry_.heap_write_barrier(cmd);
-    // Bind bindless heaps once per frame
-    bindless_registry_.bind_heaps(cmd);
+    bind_frame_heaps(bindless_registry_, recorder);
 
     // Transition the swapchain image to COLOR_ATTACHMENT_OPTIMAL
     const rr::rhi::ImageBarrier swapchain_to_color{
-        .image = &swapchain_.image(image_index),
+        .image = &swapchain_.image(acquire.image_index),
         .src_stage = rr::rhi::PipelineStage::TopOfPipe,
         .src_access = rr::rhi::AccessFlags::None,
         .dst_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
@@ -462,9 +458,9 @@ void Application::render_frame()
     frame_context.bindless_registry    = &bindless_registry_;
     frame_context.scene                = &scene_;
     frame_context.renderer             = &renderer_;
-    frame_context.swapchain_image_view = rr::rhi::to_handle(swapchain_.image(image_index).view());
+    frame_context.swapchain_image_view = rr::rhi::to_handle(swapchain_.image(acquire.image_index).view());
     frame_context.swapchain_extent     = {swapchain_.extent().width, swapchain_.extent().height};
-    frame_context.image_index          = image_index;
+    frame_context.image_index          = acquire.image_index;
     frame_context.frame_index          = frame_index;
     frame_context.delta_time_seconds   = delta_time_seconds_;
     uint32_t realtime_texture_idx = UINT32_MAX;
@@ -515,7 +511,7 @@ void Application::render_frame()
 
     // Transition the swapchain image to PRESENT_SRC_KHR for presentation.
     const rr::rhi::ImageBarrier swapchain_to_present{
-        .image = &swapchain_.image(image_index),
+        .image = &swapchain_.image(acquire.image_index),
         .src_stage = rr::rhi::PipelineStage::ColorAttachmentOutput,
         .src_access = rr::rhi::AccessFlags::ColorAttachmentWrite,
         .dst_stage = rr::rhi::PipelineStage::None,
@@ -533,46 +529,15 @@ void Application::render_frame()
     recorder.pipeline_barrier({&swapchain_to_present, 1});
 
     command_buffer_.end_frame(recorder);
+    device_.submit_frame(recorder, frame_, swapchain_, acquire.image_index);
 
-    // ── Queue submit ──────────────────────────────────────────────────────
-    const VkSemaphore render_finished = rr::rhi::from_opaque_handle<VkSemaphore>(swapchain_.render_finished(image_index));
-    constexpr VkPipelineStageFlags kWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    VkSubmitInfo submit{};
-    submit.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.waitSemaphoreCount   = 1;
-    submit.pWaitSemaphores      = &image_available;
-    submit.pWaitDstStageMask    = &kWaitStage;
-    submit.commandBufferCount   = 1;
-    submit.pCommandBuffers      = &cmd;
-    submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores    = &render_finished;
-    const VkFence in_flight_fence = rr::rhi::from_opaque_handle<VkFence>(frame_.in_flight_fence(frame_index));
-    if (vkQueueSubmit(graphics_queue, 1, &submit, in_flight_fence) != VK_SUCCESS)
-    {
-        throw std::runtime_error("vkQueueSubmit failed.");
-    }
-
-    // ── Presentation ──────────────────────────────────────────────────────
-    VkSwapchainKHR swap = swapchain_handle;
-    VkPresentInfoKHR present{};
-    present.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present.waitSemaphoreCount = 1;
-    present.pWaitSemaphores    = &render_finished;
-    present.swapchainCount     = 1;
-    present.pSwapchains        = &swap;
-    present.pImageIndices      = &image_index;
-
-    const VkResult present_result = vkQueuePresentKHR(graphics_queue, &present);
-    if (present_result == VK_ERROR_OUT_OF_DATE_KHR ||
-        present_result == VK_SUBOPTIMAL_KHR         ||
+    const rr::rhi::PresentResult present = swapchain_.present(acquire.image_index);
+    if (present.out_of_date ||
+        present.suboptimal  ||
         framebuffer_resized_)
     {
         framebuffer_resized_ = false;
         recreate_swapchain();
-    }
-    else if (present_result != VK_SUCCESS)
-    {
-        throw std::runtime_error("vkQueuePresentKHR failed.");
     }
 
     // Screenshot capture: triggered by UI button or auto at 4096 spp

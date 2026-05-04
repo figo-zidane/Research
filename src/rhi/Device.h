@@ -9,7 +9,10 @@
 
 namespace rr::rhi
 {
+class CommandRecorder;
+class Frame;
 class Surface;
+class Swapchain;
 
 class Device
 {
@@ -38,6 +41,7 @@ public:
     // logical device is created.
     void create_instance(const CreateInfo& create_info);
     void create_device_with_surface(const Surface& surface);
+    void submit_frame(CommandRecorder recorder, const Frame& frame, const Swapchain& swapchain, uint32_t image_index) const;
     void shutdown();
     void wait_idle() const;
 

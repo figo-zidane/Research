@@ -96,6 +96,77 @@ SemaphoreHandle Swapchain::render_finished(uint32_t image_index) const
     return render_finished_[image_index];
 }
 
+AcquireResult Swapchain::acquire_next_image(SemaphoreHandle image_available) const
+{
+    if (device_ == nullptr || swapchain_ == nullptr)
+    {
+        throw std::runtime_error("Swapchain::acquire_next_image called before initialize.");
+    }
+
+    uint32_t image_index = 0;
+    const VkResult result = vkAcquireNextImageKHR(
+        vulkan::get_device(*device_),
+        as_vk_swapchain(swapchain_),
+        UINT64_MAX,
+        as_vk_semaphore(image_available),
+        VK_NULL_HANDLE,
+        &image_index);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        return {.image_index = 0, .out_of_date = true, .suboptimal = false};
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        throw std::runtime_error("vkAcquireNextImageKHR failed.");
+    }
+
+    return {
+        .image_index = image_index,
+        .out_of_date = false,
+        .suboptimal = result == VK_SUBOPTIMAL_KHR,
+    };
+}
+
+PresentResult Swapchain::present(uint32_t image_index) const
+{
+    if (device_ == nullptr || swapchain_ == nullptr)
+    {
+        throw std::runtime_error("Swapchain::present called before initialize.");
+    }
+    if (image_index >= render_finished_.size())
+    {
+        throw std::runtime_error("Swapchain::present received an out-of-range image index.");
+    }
+
+    const VkSemaphore render_finished = as_vk_semaphore(render_finished_[image_index]);
+    const VkSwapchainKHR swapchain = as_vk_swapchain(swapchain_);
+
+    VkPresentInfoKHR present{};
+    present.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present.waitSemaphoreCount = 1;
+    present.pWaitSemaphores    = &render_finished;
+    present.swapchainCount     = 1;
+    present.pSwapchains        = &swapchain;
+    present.pImageIndices      = &image_index;
+
+    const VkResult result = vkQueuePresentKHR(vulkan::get_graphics_queue(*device_), &present);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR)
+    {
+        return {.out_of_date = true, .suboptimal = false};
+    }
+    if (result == VK_SUBOPTIMAL_KHR)
+    {
+        return {.out_of_date = false, .suboptimal = true};
+    }
+    if (result != VK_SUCCESS)
+    {
+        throw std::runtime_error("vkQueuePresentKHR failed.");
+    }
+
+    return {};
+}
+
 void Swapchain::initialize(Device& device, const Surface& surface, uint32_t width, uint32_t height)
 {
     if (!surface.is_valid())

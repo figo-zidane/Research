@@ -1,8 +1,11 @@
 #include "rhi/Device.h"
 
 #include "core/Log.h"
+#include "rhi/CommandRecorder.h"
+#include "rhi/Frame.h"
 #include "rhi/PlatformInternal.h"
 #include "rhi/Surface.h"
+#include "rhi/Swapchain.h"
 #include "rhi/Types.h"
 
 #include <algorithm>
@@ -257,6 +260,36 @@ void Device::create_device_with_surface(const Surface& surface)
     }
 
     create_device_with_surface_handle(surface.surface_);
+}
+
+void Device::submit_frame(CommandRecorder recorder, const Frame& frame, const Swapchain& swapchain, uint32_t image_index) const
+{
+    if (!recorder.is_valid())
+    {
+        throw std::runtime_error("submit_frame requires a valid CommandRecorder.");
+    }
+
+    const uint32_t frame_index = frame.current();
+    const VkCommandBuffer cmd = static_cast<VkCommandBuffer>(recorder.handle());
+    const VkSemaphore image_available = from_opaque_handle<VkSemaphore>(frame.image_available_semaphore(frame_index));
+    const VkSemaphore render_finished = from_opaque_handle<VkSemaphore>(swapchain.render_finished(image_index));
+    const VkFence in_flight = from_opaque_handle<VkFence>(frame.in_flight_fence(frame_index));
+
+    constexpr VkPipelineStageFlags kWaitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    VkSubmitInfo submit{};
+    submit.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.waitSemaphoreCount   = 1;
+    submit.pWaitSemaphores      = &image_available;
+    submit.pWaitDstStageMask    = &kWaitStage;
+    submit.commandBufferCount   = 1;
+    submit.pCommandBuffers      = &cmd;
+    submit.signalSemaphoreCount = 1;
+    submit.pSignalSemaphores    = &render_finished;
+
+    if (vkQueueSubmit(as_vk_queue(graphics_queue_), 1, &submit, in_flight) != VK_SUCCESS)
+    {
+        throw std::runtime_error("vkQueueSubmit failed.");
+    }
 }
 
 void Device::create_device_with_surface_handle(SurfaceHandle surface)

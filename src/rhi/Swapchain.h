@@ -12,6 +12,19 @@ class Device;
 class Image;
 class Surface;
 
+struct AcquireResult
+{
+    uint32_t image_index = 0;
+    bool out_of_date = false;
+    bool suboptimal = false;
+};
+
+struct PresentResult
+{
+    bool out_of_date = false;
+    bool suboptimal = false;
+};
+
 class Swapchain
 {
 public:
@@ -27,6 +40,8 @@ public:
     // Recreate the swapchain in place (e.g. on window resize). Caller must
     // ensure the device is idle before calling.
     void recreate(uint32_t width, uint32_t height);
+    [[nodiscard]] AcquireResult acquire_next_image(SemaphoreHandle image_available) const;
+    [[nodiscard]] PresentResult present(uint32_t image_index) const;
 
     [[nodiscard]] SwapchainHandle handle() const noexcept { return swapchain_; }
     [[nodiscard]] Format image_format() const noexcept { return image_format_; }
