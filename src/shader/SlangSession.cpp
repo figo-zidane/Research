@@ -42,6 +42,22 @@ void SlangSession::initialize(const std::filesystem::path&    shader_include_dir
     target_desc.floatingPointMode = SLANG_FLOATING_POINT_MODE_DEFAULT;
     target_desc.forceGLSLScalarBufferLayout = true;
 
+    // RayQuery (inline ray tracing) needs the spvRayQueryKHR capability, which
+    // the bare spirv_1_5 profile does not include.  Declare it explicitly via a
+    // compiler option so Slang does not emit warning 41012 ("automatically
+    // updated to include these capabilities") for every ray-query entry point.
+    slang::CompilerOptionEntry capability_option{};
+    const SlangCapabilityID ray_query_cap =
+        global_session_->findCapability("spvRayQueryKHR");
+    if (ray_query_cap != SLANG_CAPABILITY_UNKNOWN)
+    {
+        capability_option.name = slang::CompilerOptionName::Capability;
+        capability_option.value.kind = slang::CompilerOptionValueKind::Int;
+        capability_option.value.intValue0 = static_cast<int32_t>(ray_query_cap);
+        target_desc.compilerOptionEntries   = &capability_option;
+        target_desc.compilerOptionEntryCount = 1;
+    }
+
     // Preprocessor defines.
     std::vector<slang::PreprocessorMacroDesc> macros;
     macros.push_back({"VK_BINDLESS", "1"});
