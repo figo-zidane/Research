@@ -341,7 +341,7 @@ void Scene::upload(rr::rhi::Device&           device,
         const glm::mat4& t = instances_[i].transform;
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c)
-                gpu_insts[i].transform[r*4+c] = t[r][c];
+                gpu_insts[i].transform[r*4+c] = t[c][r]; // column-major glm → row-major
         gpu_insts[i].mesh_index = instances_[i].mesh_index;
     }
     instance_buffer_ = gpu_buf(
