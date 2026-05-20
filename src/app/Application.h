@@ -30,6 +30,7 @@ namespace rr::passes::accumulate   { class AccumulatePass;   }
 namespace rr::passes::tonemap      { class TonemapPass;       }
 namespace rr::passes::restir_di    { class ReSTIRDIPass;     }
 namespace rr::passes::restir_gi    { class ReSTIRGIPass;     }
+namespace rr::passes::restir_pt    { class ReSTIRPTPass;     }
 namespace rr::passes::denoise      { class AtrousPass;       }
 
 namespace rr::app
@@ -99,6 +100,7 @@ private:
     rr::passes::tonemap::TonemapPass*       tonemap_pass_    = nullptr;
     rr::passes::restir_di::ReSTIRDIPass*    restir_di_pass_  = nullptr;
     rr::passes::restir_gi::ReSTIRGIPass*    restir_gi_pass_  = nullptr;
+    rr::passes::restir_pt::ReSTIRPTPass*    restir_pt_pass_  = nullptr;
     rr::passes::denoise::AtrousPass*        atrous_pass_     = nullptr;
 
     std::string  title_   = "Research Renderer";
@@ -121,6 +123,8 @@ private:
     bool prev_use_di_      = false;
     bool use_gi_           = false;
     bool prev_use_gi_      = false;
+    bool use_pt_           = false;
+    bool prev_use_pt_      = false;
     bool use_denoise_      = false;
     bool prev_use_denoise_ = false;
     bool mse_compare_      = false;

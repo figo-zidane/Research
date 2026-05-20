@@ -49,6 +49,7 @@ public:
                bool&                       screenshot_request,
                bool&                       use_di,
                bool&                       use_gi,
+               bool&                       use_pt,
                bool&                       use_denoise,
                bool&                       mse_compare,
                std::string&                gltf_path_input,

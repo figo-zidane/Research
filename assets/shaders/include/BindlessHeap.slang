@@ -20,5 +20,10 @@
 [[vk::binding(0, 0)]] Texture2D                       gTextures[];
 [[vk::binding(1, 0)]] RWTexture2D<float4>              gStorageImages[];
 [[vk::binding(2, 0)]] ByteAddressBuffer                gScene[];
+// Writable alias of the same SSBO heap binding (set 0, binding 2). Used by
+// passes that need atomic read-modify-write on a registered buffer (e.g. the
+// ReSTIR PG world-space guiding grid). The buffer must be created with
+// Storage usage. Index is the same gScene[] index from register_buffer().
+[[vk::binding(2, 0)]] RWByteAddressBuffer              gSceneRW[];
 [[vk::binding(3, 0)]] RaytracingAccelerationStructure  gTLAS[];
 [[vk::binding(0, 1)]] SamplerState                     gSamplers[];

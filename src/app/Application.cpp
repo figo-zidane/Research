@@ -8,6 +8,7 @@
 #include "passes/pathtracer_reference/PathTracerPass.h"
 #include "passes/restir_di/ReSTIRDIPass.h"
 #include "passes/restir_gi/ReSTIRGIPass.h"
+#include "passes/restir_pt/ReSTIRPTPass.h"
 #include "passes/tonemap/TonemapPass.h"
 #include "rhi/Readback.h"
 #include "scene/GltfLoader.h"
@@ -67,6 +68,7 @@ void Application::shutdown()
     if (tonemap_pass_)    { tonemap_pass_->shutdown(device_);    tonemap_pass_    = nullptr; }
     if (restir_di_pass_)  { restir_di_pass_->shutdown(device_);  restir_di_pass_  = nullptr; }
     if (restir_gi_pass_)  { restir_gi_pass_->shutdown(device_);  restir_gi_pass_  = nullptr; }
+    if (restir_pt_pass_)  { restir_pt_pass_->shutdown(device_);  restir_pt_pass_  = nullptr; }
     if (atrous_pass_)     { atrous_pass_->shutdown(device_);     atrous_pass_     = nullptr; }
 
     hot_reload_.shutdown();
@@ -216,6 +218,14 @@ void Application::initialize_renderer()
         restir_di_pass_->output_texture_idx,
         restir_di_pass_->output_image_handle());
 
+    restir_pt_pass_ = renderer_.add_pass<rr::passes::restir_pt::ReSTIRPTPass>();
+    restir_pt_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
+    restir_pt_pass_->set_inputs(
+        gbuffer_pass_->position_storage_idx,
+        gbuffer_pass_->normal_storage_idx,
+        restir_di_pass_->output_texture_idx,
+        restir_di_pass_->output_image_handle());
+
     atrous_pass_ = renderer_.add_pass<rr::passes::denoise::AtrousPass>();
     atrous_pass_->initialize(device_, slang_session_, bindless_registry_, extent);
     atrous_pass_->set_gbuffer_indices(
@@ -266,6 +276,8 @@ void Application::initialize_renderer()
         [this]() { return restir_di_pass_->reload_shader(slang_session_); });
     hot_reload_.register_shader("assets/shaders/passes/restir_gi/restir_gi.slang",
         [this]() { return restir_gi_pass_->reload_shader(slang_session_); });
+    hot_reload_.register_shader("assets/shaders/passes/restir_pt/restir_pt.slang",
+        [this]() { return restir_pt_pass_->reload_shader(slang_session_); });
     hot_reload_.register_shader("assets/shaders/passes/denoise/atrous.slang",
         [this]() { return atrous_pass_->reload_shader(slang_session_); });
 }
@@ -299,6 +311,8 @@ void Application::pre_transition_persistent_images(rr::rhi::CommandRecorder reco
         restir_di_pass_->pre_transition_to_general(recorder);
     if (restir_gi_pass_)
         restir_gi_pass_->pre_transition_to_general(recorder);
+    if (restir_pt_pass_)
+        restir_pt_pass_->pre_transition_to_general(recorder);
     if (atrous_pass_)
         atrous_pass_->pre_transition_to_general(recorder);
 }
@@ -340,7 +354,7 @@ void Application::render_frame()
                                     ? (mse_history_pos_ % kMseHistoryLen)
                                     : 0u;
     editor_ui_.build(renderer_, delta_time_seconds_, accumulated_spp_, save_screenshot_,
-                     use_di_, use_gi_, use_denoise_, mse_compare_,
+                     use_di_, use_gi_, use_pt_, use_denoise_, mse_compare_,
                      gltf_path_input_, load_cornell_request_, load_gltf_request_,
                      current_scene_name_, atrous_pass_,
                      &hot_reload_,
@@ -363,27 +377,35 @@ void Application::render_frame()
     }
 
     // ── Display mode switch detection ─────────────────────────────────────
-    if (use_di_ != prev_use_di_ || use_gi_ != prev_use_gi_ || use_denoise_ != prev_use_denoise_)
+    if (use_di_ != prev_use_di_ || use_gi_ != prev_use_gi_
+     || use_pt_ != prev_use_pt_ || use_denoise_ != prev_use_denoise_)
     {
         accumulated_spp_ = 0;
         camera_moved_    = true;
         if (restir_di_pass_) restir_di_pass_->reset_history();
         if (restir_gi_pass_) restir_gi_pass_->reset_history();
+        if (restir_pt_pass_) restir_pt_pass_->reset_history();
         prev_use_di_      = use_di_;
         prev_use_gi_      = use_gi_;
+        prev_use_pt_      = use_pt_;
         prev_use_denoise_ = use_denoise_;
     }
     // ── Pass enable/disable based on display mode ─────────────────────────
-    const bool use_realtime = use_di_ || use_gi_;
+    // ReSTIR PT and ReSTIR GI are mutually exclusive indirect modes; PT wins.
+    const bool use_gi_eff   = use_gi_ && !use_pt_;
+    const bool use_realtime = use_di_ || use_gi_eff || use_pt_;
     const bool use_denoise = use_denoise_ && use_realtime;
     if (restir_gi_pass_)
         restir_gi_pass_->include_direct_lighting = use_di_;
+    if (restir_pt_pass_)
+        restir_pt_pass_->include_direct_lighting = use_di_;
     if (!mse_compare_)
     {
         if (accumulate_pass_)  accumulate_pass_->set_enabled(!use_realtime);
         if (pathtracer_pass_)  pathtracer_pass_->set_enabled(!use_realtime);
         if (restir_di_pass_)   restir_di_pass_->set_enabled(use_di_);
-        if (restir_gi_pass_)   restir_gi_pass_->set_enabled(use_gi_);
+        if (restir_gi_pass_)   restir_gi_pass_->set_enabled(use_gi_eff);
+        if (restir_pt_pass_)   restir_pt_pass_->set_enabled(use_pt_);
         if (atrous_pass_)      atrous_pass_->set_enabled(use_denoise);
     }
     else
@@ -391,7 +413,8 @@ void Application::render_frame()
         if (accumulate_pass_)  accumulate_pass_->set_enabled(true);
         if (pathtracer_pass_)  pathtracer_pass_->set_enabled(true);
         if (restir_di_pass_)   restir_di_pass_->set_enabled(use_di_);
-        if (restir_gi_pass_)   restir_gi_pass_->set_enabled(use_gi_);
+        if (restir_gi_pass_)   restir_gi_pass_->set_enabled(use_gi_eff);
+        if (restir_pt_pass_)   restir_pt_pass_->set_enabled(use_pt_);
         if (atrous_pass_)      atrous_pass_->set_enabled(use_denoise);
     }
 
@@ -402,6 +425,7 @@ void Application::render_frame()
         camera_moved_    = true;
         if (restir_di_pass_) restir_di_pass_->reset_history();
         if (restir_gi_pass_) restir_gi_pass_->reset_history();
+        if (restir_pt_pass_) restir_pt_pass_->reset_history();
     }
 
     // ── Camera update ─────────────────────────────────────────────────────
@@ -465,7 +489,12 @@ void Application::render_frame()
     frame_context.delta_time_seconds   = delta_time_seconds_;
     uint32_t realtime_texture_idx = UINT32_MAX;
     rr::rhi::ImageHandle realtime_image = 0;
-    if (use_gi_ && restir_gi_pass_)
+    if (use_pt_ && restir_pt_pass_)
+    {
+        realtime_texture_idx = restir_pt_pass_->output_texture_idx;
+        realtime_image       = restir_pt_pass_->output_image_handle();
+    }
+    else if (use_gi_ && restir_gi_pass_)
     {
         realtime_texture_idx = restir_gi_pass_->output_texture_idx;
         realtime_image       = restir_gi_pass_->output_image_handle();
@@ -603,6 +632,14 @@ void Application::recreate_swapchain()
             restir_di_pass_->output_texture_idx,
             restir_di_pass_->output_image_handle());
     }
+    if (gbuffer_pass_ && restir_pt_pass_ && restir_di_pass_)
+    {
+        restir_pt_pass_->set_inputs(
+            gbuffer_pass_->position_storage_idx,
+            gbuffer_pass_->normal_storage_idx,
+            restir_di_pass_->output_texture_idx,
+            restir_di_pass_->output_image_handle());
+    }
     if (tonemap_pass_ && accumulate_pass_)
     {
         tonemap_pass_->accumulated_texture_idx = accumulate_pass_->accumulated_texture_idx;
@@ -691,6 +728,7 @@ void Application::reload_scene_cornell()
     current_scene_name_   = "Cornell Box";
     if (restir_di_pass_) restir_di_pass_->reset_history();
     if (restir_gi_pass_) restir_gi_pass_->reset_history();
+    if (restir_pt_pass_) restir_pt_pass_->reset_history();
     rr::core::log()->info("[Scene] Reloaded Cornell Box");
 }
 
@@ -724,6 +762,7 @@ void Application::reload_scene_gltf(const std::string& path)
     camera_moved_     = true;
     if (restir_di_pass_) restir_di_pass_->reset_history();
     if (restir_gi_pass_) restir_gi_pass_->reset_history();
+    if (restir_pt_pass_) restir_pt_pass_->reset_history();
     rr::core::log()->info("[Scene] Loaded '{}'", current_scene_name_);
 }
 
@@ -794,8 +833,10 @@ void Application::compute_mse()
     if (!accumulate_pass_) return;
 
     const rr::rhi::Image* realtime_image = nullptr;
-    if (use_denoise_ && atrous_pass_ && (use_di_ || use_gi_))
+    if (use_denoise_ && atrous_pass_ && (use_di_ || use_gi_ || use_pt_))
         realtime_image = &atrous_pass_->output_image();
+    else if (use_pt_ && restir_pt_pass_)
+        realtime_image = &restir_pt_pass_->output_image();
     else if (use_gi_ && restir_gi_pass_)
         realtime_image = &restir_gi_pass_->output_image();
     else if (use_di_ && restir_di_pass_)

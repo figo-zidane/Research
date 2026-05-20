@@ -18,6 +18,7 @@ void EditorUI::build(const rr::render::Renderer& renderer,
                      bool&        screenshot_request,
                      bool&        use_di,
                      bool&        use_gi,
+                     bool&        use_pt,
                      bool&        use_denoise,
                      bool&        mse_compare,
                      std::string& gltf_path_input,
@@ -94,8 +95,13 @@ void EditorUI::build(const rr::render::Renderer& renderer,
         if (ImGui::CollapsingHeader("Display Mode", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Checkbox("Direct Lighting (ReSTIR DI)", &use_di);
-            ImGui::Checkbox("Indirect Lighting (GI)", &use_gi);
-            const bool can_denoise = use_di || use_gi;
+            ImGui::Checkbox("Indirect Lighting (ReSTIR GI)", &use_gi);
+            ImGui::Checkbox("Indirect Lighting (ReSTIR PT, multi-bounce)", &use_pt);
+            if (use_pt && use_gi)
+            {
+                use_gi = false;  // PT and GI are mutually exclusive; PT wins.
+            }
+            const bool can_denoise = use_di || use_gi || use_pt;
             if (!can_denoise)
                 use_denoise = false;
             if (!can_denoise)
