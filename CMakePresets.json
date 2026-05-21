@@ -11,7 +11,14 @@
       "hidden": true,
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/.vcpkg/scripts/buildsystems/vcpkg.cmake"
+      },
+      "environment": {
+        "VCPKG_ROOT": "${sourceDir}/.vcpkg",
+        "VCPKG_DISABLE_METRICS": "1",
+        "VCPKG_FEATURE_FLAGS": "manifests,versions",
+        "VCPKG_BINARY_SOURCES": "clear;files,${sourceDir}/build/vcpkg-binary-cache,readwrite",
+        "VCPKG_DOWNLOADS": "${sourceDir}/build/vcpkg-asset-cache"
       }
     },
     {

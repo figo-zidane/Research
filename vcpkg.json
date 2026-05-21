@@ -1,6 +1,7 @@
 {
   "name": "research-renderer",
   "version-string": "0.0.1",
+  "builtin-baseline": "6fad4fa784ab2506e35144a7c3d64738976445ea",
   "dependencies": [
     "vulkan-memory-allocator",
     "volk",
@@ -17,5 +18,17 @@
     "tinygltf",
     "stb",
     "efsw"
+  ],
+  "overrides": [
+    { "name": "vulkan-memory-allocator", "version": "3.3.0" },
+    { "name": "volk",                    "version": "1.4.341.0" },
+    { "name": "glfw3",                   "version": "3.4", "port-version": 1 },
+    { "name": "imgui",                   "version": "1.92.6" },
+    { "name": "glm",                     "version": "1.0.3" },
+    { "name": "spdlog",                  "version": "1.17.0" },
+    { "name": "fmt",                     "version": "12.1.0" },
+    { "name": "tinygltf",                "version": "2.9.7" },
+    { "name": "stb",                     "version-date": "2024-07-29", "port-version": 1 },
+    { "name": "efsw",                    "version": "1.5.1" }
   ]
 }
