@@ -45,11 +45,57 @@ public:
     Application& operator=(Application&&) = delete;
     ~Application();
 
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+    // run() keeps the original blocking behaviour for research-renderer.exe.
     void run();
 
-private:
+    // Explicit lifecycle for Python control: initialize() once, drive frames
+    // with step() while !should_close(), then shutdown() (also called by dtor).
     void initialize();
     void shutdown();
+
+    // Pump events + render exactly one frame. Safe to call after initialize().
+    void step();
+    [[nodiscard]] bool should_close() const;
+    // Convenience: run the step loop on the C++ side until the window closes.
+    void run_until_closed();
+
+    // ── Scene ─────────────────────────────────────────────────────────────
+    void load_cornell();
+    void load_gltf(const std::string& path);
+    [[nodiscard]] std::string scene_name() const { return current_scene_name_; }
+
+    // ── Camera ────────────────────────────────────────────────────────────
+    // eye/center/up are passed as plain float triples so glm does not leak
+    // across the binding ABI.
+    void set_camera_look_at(float ex, float ey, float ez,
+                            float cx, float cy, float cz,
+                            float ux, float uy, float uz);
+    [[nodiscard]] std::array<float, 3> camera_position() const;
+    [[nodiscard]] std::array<float, 3> camera_forward() const;
+
+    // ── Pass enable/disable ───────────────────────────────────────────────
+    // name: "restir_di" | "restir_gi" | "restir_pt" | "denoise".
+    // PT vs GI exclusivity is handled by render_frame()'s existing logic.
+    void set_pass_enabled(const std::string& name, bool enabled);
+
+    // ── Tonemap ───────────────────────────────────────────────────────────
+    void set_exposure(float exposure);
+    [[nodiscard]] float exposure() const;
+
+    // ── Input ─────────────────────────────────────────────────────────────
+    // When disabled, mouse/WASD no longer override the script-set camera.
+    void set_input_enabled(bool enabled) { input_enabled_ = enabled; }
+    [[nodiscard]] bool input_enabled() const { return input_enabled_; }
+
+    // ── Screenshot ────────────────────────────────────────────────────────
+    // Save the currently displayed image (tonemapped LDR) to a PNG path.
+    void capture_screenshot(const std::string& path);
+
+    // ── Window ────────────────────────────────────────────────────────────
+    [[nodiscard]] std::array<int, 2> window_size() const;
+
+private:
     void main_loop();
     void initialize_window();
     void initialize_rhi();
@@ -58,8 +104,13 @@ private:
     void recreate_swapchain();
     void pre_transition_persistent_images(rr::rhi::CommandRecorder recorder);
 
-    // Screenshot: save accumulated image to PNG.
-    void capture_screenshot();
+    // Screenshot: save the currently displayed source to PNG.
+    // Empty path auto-generates a timestamped filename (UI button path).
+    void capture_screenshot_impl(const std::string& path);
+
+    // Resolve the HDR image currently feeding the tonemap output, matching
+    // render_frame()'s realtime/accumulate selection. Returns nullptr if none.
+    [[nodiscard]] const rr::rhi::Image* current_display_image() const;
 
     // MSE: compare the active realtime output vs accumulated PathTracer on CPU.
     // Reads back a 64×64 center crop from both images.
@@ -110,6 +161,14 @@ private:
     // ── Frame state ───────────────────────────────────────────────────────
     bool  framebuffer_resized_ = false;
     bool  glfw_initialized_    = false;
+    bool  input_enabled_       = true;
+    // initialize() sets this; shutdown() is a no-op unless set, so the explicit
+    // shutdown() from Python and the one in ~Application() don't double-free.
+    bool  initialized_         = false;
+
+    // Only one Application may exist at a time (GLFW + Vulkan are process-global
+    // here). The constructor throws on a second instance; the dtor clears it.
+    static inline bool s_instance_alive_ = false;
     float delta_time_seconds_  = 0.0f;
     std::chrono::steady_clock::time_point last_frame_time_;
 

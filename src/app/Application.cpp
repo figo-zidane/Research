@@ -37,17 +37,22 @@ void bind_frame_heaps(rr::rhi::BindlessRegistry& bindless_registry, rr::rhi::Com
 
 namespace rr::app
 {
-Application::Application() = default;
+Application::Application()
+{
+    if (s_instance_alive_)
+        throw std::runtime_error("Application: only one instance is allowed");
+    s_instance_alive_ = true;
+}
 
 Application::~Application()
 {
     shutdown();
+    s_instance_alive_ = false;
 }
 
 void Application::run()
 {
     initialize();
-    last_frame_time_ = std::chrono::steady_clock::now();
     main_loop();
 }
 
@@ -56,10 +61,16 @@ void Application::initialize()
     initialize_window();
     initialize_rhi();
     initialize_renderer();
+    last_frame_time_ = std::chrono::steady_clock::now();
+    initialized_ = true;
 }
 
 void Application::shutdown()
 {
+    if (!initialized_)
+        return;
+    initialized_ = false;
+
     device_.wait_idle();
 
     if (gbuffer_pass_)    { gbuffer_pass_->shutdown(device_);    gbuffer_pass_    = nullptr; }
@@ -107,19 +118,32 @@ void Application::shutdown()
     }
 }
 
+void Application::step()
+{
+    glfwPollEvents();
+
+    const auto now      = std::chrono::steady_clock::now();
+    delta_time_seconds_ = std::chrono::duration<float>(now - last_frame_time_).count();
+    last_frame_time_    = now;
+
+    render_frame();
+}
+
+bool Application::should_close() const
+{
+    return window_ == nullptr || glfwWindowShouldClose(window_) != 0;
+}
+
+void Application::run_until_closed()
+{
+    while (!should_close())
+        step();
+    device_.wait_idle();
+}
+
 void Application::main_loop()
 {
-    while (!glfwWindowShouldClose(window_))
-    {
-        glfwPollEvents();
-
-        const auto now      = std::chrono::steady_clock::now();
-        delta_time_seconds_ = std::chrono::duration<float>(now - last_frame_time_).count();
-        last_frame_time_    = now;
-
-        render_frame();
-    }
-    device_.wait_idle();
+    run_until_closed();
 }
 
 void Application::initialize_window()
@@ -429,7 +453,9 @@ void Application::render_frame()
     }
 
     // ── Camera update ─────────────────────────────────────────────────────
-    bool cam_moved = camera_.update(window_, delta_time_seconds_);
+    // When input is disabled (Python-driven camera) skip mouse/WASD polling so
+    // the script-set pose is not overridden.
+    bool cam_moved = input_enabled_ && camera_.update(window_, delta_time_seconds_);
     if (cam_moved)
     {
         camera_moved_    = true;
@@ -573,7 +599,7 @@ void Application::render_frame()
     if (save_screenshot_)
     {
         save_screenshot_ = false;
-        capture_screenshot();
+        capture_screenshot_impl("");  // empty → timestamped filename
     }
 
     (void)frame_.advance();
@@ -766,9 +792,31 @@ void Application::reload_scene_gltf(const std::string& path)
     rr::core::log()->info("[Scene] Loaded '{}'", current_scene_name_);
 }
 
-void Application::capture_screenshot()
+const rr::rhi::Image* Application::current_display_image() const
 {
-    if (!accumulate_pass_) return;
+    // Mirror render_frame()'s tonemap-source selection so the screenshot matches
+    // exactly what is on screen: denoised > realtime (PT/GI/DI) > accumulate.
+    const bool use_gi_eff   = use_gi_ && !use_pt_;
+    const bool use_realtime = use_di_ || use_gi_eff || use_pt_;
+    const bool use_denoise  = use_denoise_ && use_realtime;
+
+    if (use_denoise && atrous_pass_)
+        return &atrous_pass_->output_image();
+    if (use_pt_ && restir_pt_pass_)
+        return &restir_pt_pass_->output_image();
+    if (use_gi_eff && restir_gi_pass_)
+        return &restir_gi_pass_->output_image();
+    if (use_di_ && restir_di_pass_)
+        return &restir_di_pass_->output_image();
+    if (accumulate_pass_)
+        return &accumulate_pass_->accumulated_image();
+    return nullptr;
+}
+
+void Application::capture_screenshot_impl(const std::string& path)
+{
+    const rr::rhi::Image* src = current_display_image();
+    if (src == nullptr) return;
 
     const rr::rhi::Extent2D ext = swapchain_.extent();
     const uint32_t   pixel_count = ext.width * ext.height;
@@ -791,7 +839,9 @@ void Application::capture_screenshot()
         .mip = 0,
         .layer = 0,
     };
-    rr::rhi::readback_image(device_, accumulate_pass_->accumulated_image(),
+    // All display-source images are kept in the General layout (see
+    // pre_transition_persistent_images and each pass's execute()).
+    rr::rhi::readback_image(device_, *src,
                             rr::rhi::ImageLayout::General, staging, region);
 
     // Map buffer and convert RGBA32F → RGBA8 with ACES tone mapping + sRGB gamma.
@@ -817,15 +867,26 @@ void Application::capture_screenshot()
     staging.unmap(device_);
     staging.destroy(device_);
 
-    const std::time_t ts   = std::time(nullptr);
-    const std::string path = "screenshot_" + std::to_string(accumulated_spp_) + "spp_" + std::to_string(ts) + ".png";
-    stbi_write_png(path.c_str(),
+    std::string out_path = path;
+    if (out_path.empty())
+    {
+        const std::time_t ts = std::time(nullptr);
+        out_path = "screenshot_" + std::to_string(accumulated_spp_) + "spp_" + std::to_string(ts) + ".png";
+    }
+    else
+    {
+        // Ensure the parent directory exists for caller-supplied paths.
+        const std::filesystem::path p(out_path);
+        if (p.has_parent_path())
+            std::filesystem::create_directories(p.parent_path());
+    }
+    stbi_write_png(out_path.c_str(),
                    static_cast<int>(ext.width),
                    static_cast<int>(ext.height),
                    4, ldr.data(),
                    static_cast<int>(ext.width) * 4);
     rr::core::log()->info("[Screenshot] Saved '{}' ({}x{}, {} spp)",
-                          path, ext.width, ext.height, accumulated_spp_);
+                          out_path, ext.width, ext.height, accumulated_spp_);
 }
 
 void Application::compute_mse()
@@ -885,6 +946,86 @@ void Application::compute_mse()
     mse_latest_ = static_cast<float>(mse_sum);
     mse_history_[mse_history_pos_ % kMseHistoryLen] = mse_latest_;
     ++mse_history_pos_;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Public control API (used by the Python bindings; also callable from C++).
+// These write the same flags the ImGui editor writes, so render_frame()'s
+// existing change-detection drives history/accumulation resets.
+// ──────────────────────────────────────────────────────────────────────────
+
+void Application::load_cornell()
+{
+    // Route through the same request flag the UI uses so the reload happens at
+    // a safe point inside render_frame().
+    load_cornell_request_ = true;
+    load_gltf_request_    = false;
+}
+
+void Application::load_gltf(const std::string& path)
+{
+    gltf_path_input_   = path;
+    load_gltf_request_ = true;
+}
+
+void Application::set_camera_look_at(float ex, float ey, float ez,
+                                     float cx, float cy, float cz,
+                                     float ux, float uy, float uz)
+{
+    camera_.look_at({ex, ey, ez}, {cx, cy, cz}, {ux, uy, uz});
+    // Discard progressive accumulation: the view changed.
+    camera_moved_    = true;
+    accumulated_spp_ = 0;
+}
+
+std::array<float, 3> Application::camera_position() const
+{
+    const glm::vec3 p = camera_.position();
+    return {p.x, p.y, p.z};
+}
+
+std::array<float, 3> Application::camera_forward() const
+{
+    const glm::vec3 f = camera_.forward();
+    return {f.x, f.y, f.z};
+}
+
+void Application::set_pass_enabled(const std::string& name, bool enabled)
+{
+    if (name == "restir_di")       use_di_      = enabled;
+    else if (name == "restir_gi")  use_gi_      = enabled;
+    else if (name == "restir_pt")  use_pt_      = enabled;
+    else if (name == "denoise")    use_denoise_ = enabled;
+    else
+        throw std::invalid_argument(
+            "set_pass_enabled: unknown pass '" + name +
+            "' (expected restir_di | restir_gi | restir_pt | denoise)");
+}
+
+void Application::set_exposure(float exposure)
+{
+    if (tonemap_pass_)
+        tonemap_pass_->exposure = exposure;
+}
+
+float Application::exposure() const
+{
+    return tonemap_pass_ ? tonemap_pass_->exposure : 1.0f;
+}
+
+void Application::capture_screenshot(const std::string& path)
+{
+    // Make sure GPU work for the displayed frame is done before reading back.
+    device_.wait_idle();
+    capture_screenshot_impl(path);
+}
+
+std::array<int, 2> Application::window_size() const
+{
+    int w = 0, h = 0;
+    if (window_ != nullptr)
+        glfwGetFramebufferSize(window_, &w, &h);
+    return {w, h};
 }
 
 } // namespace rr::app

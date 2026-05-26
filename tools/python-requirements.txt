@@ -1,0 +1,16 @@
+# Python ビルド依存の固定リスト（pip 版サプライチェーン対策）
+#
+# vcpkg.lock.txt の pip 版に相当する監査ファイル。
+# バージョンと artifact の SHA256 を固定し、--require-hashes で
+# PyPI 上の差し替え・改ざんを拒否する。
+#
+# 取得・検証手順は documents/vcpkg_supply_chain_hardening.md の
+# 「Python ビルド依存（pip）」節を参照。
+#
+# インストール:
+#   .\tools\install-python-deps.ps1
+#
+# nanobind は py3-none-any の純 Python 配布（ヘッダ + CMake config + nb_combined.cpp）。
+# プラットフォーム非依存の単一 wheel なので 1 つのハッシュで全環境を固定できる。
+nanobind==2.12.0 \
+    --hash=sha256:a10d3d88e691dcdf22696f9acd893fda3c5a05635763aea238829d274fcad480

@@ -178,3 +178,26 @@ add_custom_command(
           "${SLANG_DLL}"
           $<TARGET_FILE_DIR:research-renderer>
 )
+
+# ── Python bindings module ────────────────────────────────────────────────────
+# Output is research_renderer.pyd, linking the same `app` static library the
+# executable uses so UI and scripting share one code path.
+if(RR_BUILD_PYTHON)
+  nanobind_add_module(research_renderer_py
+    NB_STATIC
+    python/bindings.cpp
+  )
+  set_target_properties(research_renderer_py PROPERTIES OUTPUT_NAME research_renderer)
+  target_link_libraries(research_renderer_py PRIVATE app)
+
+  # The module needs assets/ and slang.dll alongside it, just like the exe,
+  # so scripts can run from the module's directory.
+  add_custom_command(TARGET research_renderer_py POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:research_renderer_py>/assets)
+  add_custom_command(TARGET research_renderer_py POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${SLANG_DLL}"
+            $<TARGET_FILE_DIR:research_renderer_py>)
+endif()

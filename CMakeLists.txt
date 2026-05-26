@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(RR_ENABLE_VALIDATION "Enable Vulkan validation layers when available" ON)
+option(RR_BUILD_PYTHON "Build the research_renderer Python bindings" ON)
 
 # Vulkan and Slang are both shipped with the LunarG Vulkan SDK.
 # We rely on $ENV{VULKAN_SDK} (set by the LunarG installer) rather than the
@@ -61,5 +62,33 @@ message(STATUS "Vulkan SDK : ${RR_VULKAN_SDK_ROOT}")
 message(STATUS "Slang lib  : ${SLANG_LIBRARY}")
 message(STATUS "Slang dll  : ${SLANG_DLL}")
 message(STATUS "Slang inc  : ${SLANG_INCLUDE_DIR}")
+
+# ── Python bindings (nanobind) ────────────────────────────────────────────────
+# nanobind is fetched via a hardened pip install into ./.python-deps (see
+# tools/install-python-deps.ps1 and documents/vcpkg_supply_chain_hardening.md),
+# not vcpkg, because the vcpkg nanobind port drags in a from-source CPython build.
+# We locate its CMake config by asking the interpreter where the wheel put it.
+if(RR_BUILD_PYTHON)
+  find_package(Python 3.10 COMPONENTS Interpreter Development.Module REQUIRED)
+
+  # Resolve nanobind's CMake config dir from the project-local install. Setting
+  # PYTHONPATH to .python-deps lets `python -m nanobind` work without a global
+  # install. Falls back to the default search if the project-local copy is absent.
+  set(_rr_python_deps "${CMAKE_SOURCE_DIR}/.python-deps")
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E env "PYTHONPATH=${_rr_python_deps}"
+            "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+    OUTPUT_VARIABLE NB_CMAKE_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _rr_nb_result)
+  if(NOT _rr_nb_result EQUAL 0)
+    message(FATAL_ERROR
+      "Could not locate nanobind. Run tools/install-python-deps.ps1 first "
+      "(it installs a hash-pinned nanobind into .python-deps).")
+  endif()
+  message(STATUS "nanobind cmake dir : ${NB_CMAKE_DIR}")
+  list(APPEND CMAKE_PREFIX_PATH "${NB_CMAKE_DIR}")
+  find_package(nanobind CONFIG REQUIRED)
+endif()
 
 add_subdirectory(src)
